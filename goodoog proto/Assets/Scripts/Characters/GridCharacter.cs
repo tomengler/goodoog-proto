@@ -24,6 +24,12 @@ namespace DogAndRobot.Characters
         public bool IsMoving { get; private set; }
         
         private Vector3 _targetWorldPosition;
+
+        // Visual offset from grid position (used when joined)
+private Vector3 _visualOffset = Vector3.zero;
+
+// Visual scale multiplier (used when joined)
+private float _visualScale = 1f;
         
         // === SETTINGS ACCESS ===
         // Properties that read from central settings, with fallback defaults
@@ -93,6 +99,8 @@ namespace DogAndRobot.Characters
             }
         }
         
+                
+        
         public Vector3 GetWorldPosition()
         {
             return _gridPosition.ToWorldPosition(CellSize);
@@ -102,5 +110,21 @@ namespace DogAndRobot.Characters
         {
             return _gridPosition.ManhattanDistanceTo(other.GridPosition);
         }
+
+public void SetVisualOffset(Vector3 offset)
+{
+    _visualOffset = offset;
+}
+
+/// <summary>
+/// Sets a visual scale multiplier.
+/// Used to shrink characters when joined.
+/// scaleX and scaleY can be set independently.
+/// </summary>
+public void SetVisualScale(float scaleX, float scaleY)
+{
+    transform.localScale = new Vector3(scaleX, scaleY, 1f);
+}
+
     }
 }

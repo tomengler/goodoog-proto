@@ -664,7 +664,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4aab80112a3724d49981aaf4c8c4d510, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DogAndRobot.Core.SettingsManager
-  settings: {fileID: 0}
+  settings: {fileID: 11400000, guid: 2cb637f4a6fa87f469a9f28a68d70fd2, type: 2}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
