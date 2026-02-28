@@ -68,5 +68,10 @@ namespace DogAndRobot.Characters
 
             return true;
         }
+
+        public override DamageType GetDamageType()
+{
+    return DamageType.Robot;
+}
     }
 }

@@ -4,6 +4,7 @@
 
 using UnityEngine;
 using DogAndRobot.Core;
+using DogAndRobot.Enemies;
 
 namespace DogAndRobot.Characters
 {
@@ -53,20 +54,70 @@ private float _visualScale = 1f;
         
         // === MOVEMENT METHODS ===
         
-        public bool TryMove(GridPosition direction)
+        /// <summary>
+/// Attempts to move the character one grid cell in the given direction.
+/// Returns true if the move was successful, false if blocked.
+/// </summary>
+public bool TryMove(GridPosition direction)
+{
+    // Calculate where we'd end up
+    GridPosition newPosition = _gridPosition + direction;
+    
+    // Check if there's an enemy at the target position
+    Enemy enemy = FindEnemyAtPosition(newPosition);
+    if (enemy != null)
+    {
+        // Try to attack the enemy
+        DamageType damageType = GetDamageType();
+        enemy.TryTakeHit(damageType, direction);
+        
+        // Don't move into enemy's space
+        return false;
+    }
+    
+    // Check if the move is valid (we'll expand this later with collision)
+    if (CanMoveTo(newPosition))
+    {
+        // Update our logical grid position immediately
+        _gridPosition = newPosition;
+        
+        // Set the target for smooth visual movement
+        _targetWorldPosition = _gridPosition.ToWorldPosition(CellSize);
+        
+        // Flag that we're in motion (useful for animations, preventing input, etc.)
+        IsMoving = true;
+        
+        // Let the caller know the move succeeded
+        return true;
+    }
+    
+    return false;
+}
+
+/// <summary>
+/// Finds an enemy at the given grid position, if any.
+/// </summary>
+private Enemy FindEnemyAtPosition(GridPosition position)
+{
+    Enemy[] enemies = FindObjectsByType<Enemy>(FindObjectsSortMode.None);
+    foreach (Enemy enemy in enemies)
+    {
+        if (enemy.GridPosition == position)
         {
-            GridPosition newPosition = _gridPosition + direction;
-            
-            if (CanMoveTo(newPosition))
-            {
-                _gridPosition = newPosition;
-                _targetWorldPosition = _gridPosition.ToWorldPosition(CellSize);
-                IsMoving = true;
-                return true;
-            }
-            
-            return false;
+            return enemy;
         }
+    }
+    return null;
+}
+
+/// <summary>
+/// Returns the damage type this character deals.
+/// Override in child classes.
+/// </summary>
+public virtual DamageType GetDamageType()
+{
+    return DamageType.Robot; // Default
+}
         
         public void TeleportTo(GridPosition position)
         {

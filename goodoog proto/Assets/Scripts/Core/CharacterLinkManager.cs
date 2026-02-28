@@ -17,6 +17,9 @@ namespace DogAndRobot.Core
         [Header("Character References")]
         public Robot robot;
         public Dog dog;
+// Track which character is "leading" the movement when joined
+private DamageType _joinedMovementLeader;
+        
         
         [Header("State")]
         [SerializeField] private bool _isJoined = true;
@@ -151,37 +154,49 @@ namespace DogAndRobot.Core
             }
             
             // Handle normal movement
-            GridPosition moveDirection = GridPosition.Zero;
-            
-            if (robotDir != GridPosition.Zero)
-            {
-                moveDirection = robotDir;
-            }
-            else if (dogDir != GridPosition.Zero)
-            {
-                moveDirection = dogDir;
-            }
-            
-            if (moveDirection != GridPosition.Zero)
-            {
-                // Remember where we were before moving
-                if (!_hasPendingMovement)
-                {
-                    _positionBeforeInput = robot.GridPosition;
-                    _hasPendingMovement = true;
-                }
-                
-                robot.TryMove(moveDirection);
-                dog.TryMove(moveDirection);
-            }
-            
-            // Clear pending state once the window has passed
-            if (_hasPendingMovement && 
-                (Time.time - _lastRobotInputTime) >= SeparationInputWindow &&
-                (Time.time - _lastDogInputTime) >= SeparationInputWindow)
-            {
-                _hasPendingMovement = false;
-            }
+           // Handle normal movement
+GridPosition moveDirection = GridPosition.Zero;
+DamageType leader = DamageType.Robot;
+
+if (robotDir != GridPosition.Zero)
+{
+    moveDirection = robotDir;
+    leader = DamageType.Robot;
+}
+else if (dogDir != GridPosition.Zero)
+{
+    moveDirection = dogDir;
+    leader = DamageType.Dog;
+}
+
+if (moveDirection != GridPosition.Zero)
+{
+    // Remember where we were before moving
+    if (!_hasPendingMovement)
+    {
+        _positionBeforeInput = robot.GridPosition;
+        _hasPendingMovement = true;
+    }
+    
+    // Store who's leading
+    _joinedMovementLeader = leader;
+    
+    // Only the leader actually "moves" (and can deal damage)
+    // The other character just follows
+    if (leader == DamageType.Robot)
+    {
+        robot.TryMove(moveDirection);
+        dog.TeleportTo(robot.GridPosition);
+    }
+    else
+    {
+        dog.TryMove(moveDirection);
+        robot.TeleportTo(dog.GridPosition);
+    }
+    
+    // Reapply joined visuals after movement
+    UpdateJoinedVisuals();
+}
         }
         
         private void HandleSeparateInput(GridPosition robotDir, GridPosition dogDir)

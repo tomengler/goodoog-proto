@@ -47,10 +47,13 @@
     <Analyzer Include="C:\Program Files\Unity\Hub\Editor\6000.3.2f1\Editor\Data\Tools\BuildPipeline\Unity.SourceGenerators\Unity.UIToolkit.SourceGenerator.dll" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Assets\Scripts\Core\EnemySpawner.cs" />
     <Compile Include="Assets\Scripts\Characters\Robot.cs" />
     <Compile Include="Assets\Scripts\Core\GridPosition.cs" />
     <Compile Include="Assets\Scripts\Core\CharacterLinkManager.cs" />
     <Compile Include="Assets\Scripts\Characters\Dog.cs" />
+    <Compile Include="Assets\Scripts\Core\DamageType.cs" />
+    <Compile Include="Assets\Scripts\Enemies\Enemy.cs" />
     <Compile Include="Assets\Scripts\Core\SettingsManager.cs" />
     <Compile Include="Assets\Scripts\Core\GameSettings.cs" />
     <Compile Include="Assets\Scripts\Core\InputSwapManager.cs" />
