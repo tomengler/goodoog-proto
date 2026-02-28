@@ -32,6 +32,9 @@ namespace DogAndRobot.Enemies
         [Header("Damage Type Colors")]
         public Color dogDamageColor = new Color(1f, 0.5f, 0f); // Orange
         public Color robotDamageColor = new Color(0.3f, 0.5f, 1f); // Blue
+
+        // Fired when this enemy dies
+        public static event System.Action OnEnemyDefeated;
         
         // Settings access
         private float CellSize => SettingsManager.Instance?.settings?.cellSize ?? 1f;
@@ -173,6 +176,7 @@ namespace DogAndRobot.Enemies
         protected virtual void Die()
         {
             Debug.Log($"{gameObject.name} defeated!");
+            OnEnemyDefeated?.Invoke();
             Destroy(gameObject);
         }
         

@@ -258,9 +258,11 @@ if (moveDirection != GridPosition.Zero)
     robot.SetVisualScale(JoinedScale, 1f);
     dog.SetVisualScale(JoinedScale, 1f);
     
-    // Offset so they sit next to each other within the cell
-    Vector3 robotOffset = new Vector3(-JoinedOffset, 0, 0);
-    Vector3 dogOffset = new Vector3(JoinedOffset, 0, 0);
+    // Offset so they sit flush next to each other within the cell
+    // Each sprite is 1 unit wide, scaled to JoinedScale, so half-width = JoinedScale / 2
+    float halfWidth = JoinedScale / 2f;
+    Vector3 robotOffset = new Vector3(-halfWidth, 0, 0);
+    Vector3 dogOffset = new Vector3(halfWidth, 0, 0);
     
     robot.SetVisualOffset(robotOffset);
     dog.SetVisualOffset(dogOffset);

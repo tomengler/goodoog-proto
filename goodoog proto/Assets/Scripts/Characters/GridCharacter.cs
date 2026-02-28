@@ -69,9 +69,17 @@ public bool TryMove(GridPosition direction)
     {
         // Try to attack the enemy
         DamageType damageType = GetDamageType();
-        enemy.TryTakeHit(damageType, direction);
-        
-        // Don't move into enemy's space
+        bool hit = enemy.TryTakeHit(damageType, direction);
+
+        if (hit)
+        {
+            // Follow up: move into the space the enemy was knocked out of
+            _gridPosition = newPosition;
+            _targetWorldPosition = _gridPosition.ToWorldPosition(CellSize);
+            IsMoving = true;
+            return true;
+        }
+
         return false;
     }
     
@@ -123,7 +131,7 @@ public virtual DamageType GetDamageType()
         {
             _gridPosition = position;
             _targetWorldPosition = _gridPosition.ToWorldPosition(CellSize);
-            transform.position = _targetWorldPosition;
+            transform.position = _targetWorldPosition + _visualOffset;
             IsMoving = false;
         }
         
@@ -135,17 +143,19 @@ public virtual DamageType GetDamageType()
         private void UpdateVisualPosition()
         {
             if (!IsMoving) return;
-            
+
+            Vector3 target = _targetWorldPosition + _visualOffset;
+
             transform.position = Vector3.Lerp(
                 transform.position,
-                _targetWorldPosition,
+                target,
                 MoveSpeed * Time.deltaTime
             );
-            
-            float distanceToTarget = Vector3.Distance(transform.position, _targetWorldPosition);
+
+            float distanceToTarget = Vector3.Distance(transform.position, target);
             if (distanceToTarget < ArrivalThreshold)
             {
-                transform.position = _targetWorldPosition;
+                transform.position = target;
                 IsMoving = false;
             }
         }
