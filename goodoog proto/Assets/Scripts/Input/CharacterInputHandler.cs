@@ -91,6 +91,30 @@ namespace DogAndRobot.Input
             return direction;
         }
 
+        /// <summary>
+        /// Checks if the key for a specific grid direction is currently held down.
+        /// </summary>
+        public bool IsDirectionHeld(GridPosition direction)
+        {
+            if (direction == GridPosition.Up) return UnityEngine.Input.GetKey(_upKey);
+            if (direction == GridPosition.Down) return UnityEngine.Input.GetKey(_downKey);
+            if (direction == GridPosition.Left) return UnityEngine.Input.GetKey(_leftKey);
+            if (direction == GridPosition.Right) return UnityEngine.Input.GetKey(_rightKey);
+            return false;
+        }
+
+        /// <summary>
+        /// Returns the currently held direction, or Zero if none.
+        /// </summary>
+        public GridPosition GetHeldDirection()
+        {
+            if (UnityEngine.Input.GetKey(_upKey)) return GridPosition.Up;
+            if (UnityEngine.Input.GetKey(_downKey)) return GridPosition.Down;
+            if (UnityEngine.Input.GetKey(_leftKey)) return GridPosition.Left;
+            if (UnityEngine.Input.GetKey(_rightKey)) return GridPosition.Right;
+            return GridPosition.Zero;
+        }
+
         public bool IsSpecialHeld()
         {
             return profile == InputProfile.WASD

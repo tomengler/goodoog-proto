@@ -36,29 +36,43 @@ namespace DogAndRobot.Core
 
         private GridPosition GetRandomScreenGridPosition()
         {
+            // Use wall interior bounds if available
+            if (WallManager.Instance != null)
+            {
+                WallManager.Instance.GetInteriorBounds(out int minX, out int maxX, out int minY, out int maxY);
+
+                for (int attempt = 0; attempt < 50; attempt++)
+                {
+                    int x = Random.Range(minX, maxX + 1);
+                    int y = Random.Range(minY, maxY + 1);
+                    GridPosition pos = new GridPosition(x, y);
+                    if (!WallManager.Instance.IsWall(pos))
+                        return pos;
+                }
+
+                return new GridPosition(minX, minY);
+            }
+
+            // Fallback: camera-based spawning
             float cellSize = SettingsManager.Instance?.settings?.cellSize ?? 1f;
 
-            // Get camera bounds in world space
             float camHeight = _camera.orthographicSize;
             float camWidth = camHeight * _camera.aspect;
             Vector3 camPos = _camera.transform.position;
 
-            // Shrink bounds by 1 cell so enemies don't spawn at screen edges
-            float minX = camPos.x - camWidth + cellSize;
-            float maxX = camPos.x + camWidth - cellSize;
-            float minY = camPos.y - camHeight + cellSize;
-            float maxY = camPos.y + camHeight - cellSize;
+            float fMinX = camPos.x - camWidth + cellSize;
+            float fMaxX = camPos.x + camWidth - cellSize;
+            float fMinY = camPos.y - camHeight + cellSize;
+            float fMaxY = camPos.y + camHeight - cellSize;
 
-            // Pick a random grid-aligned position
-            int gridMinX = Mathf.CeilToInt(minX / cellSize);
-            int gridMaxX = Mathf.FloorToInt(maxX / cellSize);
-            int gridMinY = Mathf.CeilToInt(minY / cellSize);
-            int gridMaxY = Mathf.FloorToInt(maxY / cellSize);
+            int gridMinX = Mathf.CeilToInt(fMinX / cellSize);
+            int gridMaxX = Mathf.FloorToInt(fMaxX / cellSize);
+            int gridMinY = Mathf.CeilToInt(fMinY / cellSize);
+            int gridMaxY = Mathf.FloorToInt(fMaxY / cellSize);
 
-            int x = Random.Range(gridMinX, gridMaxX + 1);
-            int y = Random.Range(gridMinY, gridMaxY + 1);
-
-            return new GridPosition(x, y);
+            return new GridPosition(
+                Random.Range(gridMinX, gridMaxX + 1),
+                Random.Range(gridMinY, gridMaxY + 1));
         }
     }
 }

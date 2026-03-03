@@ -24,6 +24,22 @@ namespace DogAndRobot.Core
         [Tooltip("Time window (in seconds) for detecting opposing inputs to separate")]
         public float separationInputWindow = 0.15f;
         
+        [Header("Sprint Settings")]
+        [Tooltip("Speed boost multiplier applied over the ramp duration (1.25 = 25% faster)")]
+        public float sprintSpeedBoost = 1.25f;
+
+        [Tooltip("Duration of the speed ramp from base to boosted speed")]
+        public float sprintRampDuration = 0.5f;
+
+        [Tooltip("How fast sprint decelerates when braking (tuned for ~2 tile stop)")]
+        public float sprintBrakeDeceleration = 40f;
+
+        [Tooltip("Safety cap: max slide distance in cells when braking")]
+        public float sprintBrakeOvershoot = 3f;
+
+        [Tooltip("Time window between taps to count as consecutive")]
+        public float sprintTapWindow = 0.3f;
+
         [Header("Joined Visual Settings")]
         [Tooltip("How far each character offsets from center when joined")]
         public float joinedOffset = 0.25f;
