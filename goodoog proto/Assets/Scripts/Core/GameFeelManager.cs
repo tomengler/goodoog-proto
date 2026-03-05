@@ -334,6 +334,46 @@ namespace DogAndRobot.Core
             _chromaticAberration.intensity.value = 0f;
         }
 
+        // === PULSE FLASH (repeating flash for vulnerable state) ===
+
+        /// <summary>
+        /// Starts a repeating white flash on a sprite. Returns the Coroutine handle so caller can stop it.
+        /// The flashInterval ref array allows the caller to update the interval externally (index 0).
+        /// </summary>
+        public static Coroutine PulseFlash(SpriteRenderer renderer, float[] intervalRef, float totalDuration)
+        {
+            if (Instance == null || renderer == null) return null;
+            return Instance.StartCoroutine(Instance.PulseFlashRoutine(renderer, intervalRef, totalDuration));
+        }
+
+        private IEnumerator PulseFlashRoutine(SpriteRenderer renderer, float[] intervalRef, float totalDuration)
+        {
+            if (renderer == null) yield break;
+
+            Color originalColor = renderer.color;
+            float elapsed = 0f;
+
+            while (elapsed < totalDuration)
+            {
+                if (renderer == null) yield break;
+
+                // Flash to white
+                renderer.color = Color.white;
+                yield return new WaitForSeconds(intervalRef[0] * 0.3f);
+
+                if (renderer == null) yield break;
+
+                // Return to original
+                renderer.color = originalColor;
+                yield return new WaitForSeconds(intervalRef[0] * 0.7f);
+
+                elapsed += intervalRef[0];
+            }
+
+            if (renderer != null)
+                renderer.color = originalColor;
+        }
+
         // === TIME-SCALE PUNCH (Layer C) ===
 
         public static void TimeScalePunch(float scale = 0.7f, float duration = 0.1f)

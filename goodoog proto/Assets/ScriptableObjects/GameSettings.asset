@@ -17,5 +17,15 @@ MonoBehaviour:
   arrivalThreshold: 0.01
   inputCooldown: 0.05
   separationInputWindow: 0.15
+  sprintSpeedBoost: 2
+  sprintRampDuration: 0
+  sprintBrakeDeceleration: 40
+  sprintBrakeOvershoot: 6
+  sprintTapWindow: 0.3
+  sprintHoldDuration: 0.1
+  vulnerableDuration: 5
+  vulnerableRecoveryHealth: 1
+  chargeAttackHoldDuration: 1
+  jointAttackWindow: 0.15
   joinedOffset: 1
   joinedScale: 0.5

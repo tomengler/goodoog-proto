@@ -64,6 +64,14 @@ namespace DogAndRobot.Core
         [Header("Enemy Launch")]
         [Tooltip("Speed of enemy launch toward wall (world units/sec)")]
         public float launchSpeed = 20f;
+        [Header("Vulnerable")]
+        [Tooltip("Base flash interval while vulnerable")]
+        public float vulnerableFlashInterval = 0.3f;
+        [Tooltip("Flash interval in the last 2 seconds of vulnerable timer")]
+        public float vulnerableUrgentFlashInterval = 0.1f;
+        [Tooltip("Character shake intensity while charging attack")]
+        public float chargeShakeIntensity = 0.02f;
+
         [Header("Sprint Feel")]
         [Tooltip("How much to squash along sprint movement axis")]
         public float sprintSquashAmount = 0.8f;

@@ -5,11 +5,12 @@
 // To separate: input opposing directions simultaneously.
 // To rejoin: move into the same grid space.
 // Also handles sprint routing for both joined and separated states.
-// Sprint activates via alternating input: A-B-A(hold) or B-A-B(hold).
+// Sprint activates via same-character triple-tap: A-A-A(hold).
 
 using UnityEngine;
 using System.Collections;
 using DogAndRobot.Characters;
+using DogAndRobot.Enemies;
 using DogAndRobot.Input;
 
 namespace DogAndRobot.Core
@@ -33,7 +34,6 @@ namespace DogAndRobot.Core
         private float SeparationInputWindow => SettingsManager.Instance?.settings?.separationInputWindow ?? 0.15f;
         private float JoinedOffset => SettingsManager.Instance?.settings?.joinedOffset ?? 0.25f;
         private float JoinedScale => SettingsManager.Instance?.settings?.joinedScale ?? 0.5f;
-        private float SprintTapWindow => SettingsManager.Instance?.settings?.sprintTapWindow ?? 0.3f;
 
         // Input handler references
         private CharacterInputHandler _robotInput;
@@ -49,15 +49,17 @@ namespace DogAndRobot.Core
         private GridPosition _positionBeforeInput;
         private bool _hasPendingMovement = false;
 
-        // === ALTERNATING SPRINT TAP TRACKING ===
-        // Pattern: A-B-A(hold) or B-A-B(hold) in the same direction
-        private GridPosition _sprintTapDir = GridPosition.Zero;
-        private int _sprintTapCount;
-        private CharacterInputHandler _lastSprintTapper;
-        private float _lastSprintTapTime;
-
-        // Sprint tracking — which input triggered the active sprint
+        // Sprint tracking — direction of the active sprint
         private GridPosition _activeSprintDir = GridPosition.Zero;
+
+        // Joint attack tracking
+        private GridPosition _lastRobotTapDir = GridPosition.Zero;
+        private GridPosition _lastDogTapDir = GridPosition.Zero;
+        private float _lastRobotTapTime = -999f;
+        private float _lastDogTapTime = -999f;
+
+        // Settings access for new attacks
+        private float JointAttackWindow => SettingsManager.Instance?.settings?.jointAttackWindow ?? 0.15f;
 
         // Setup flag
         private bool _setupComplete = false;
@@ -106,6 +108,9 @@ namespace DogAndRobot.Core
             // Handle sprint state each frame (hold/release detection)
             HandleSprintUpdate();
 
+            // Handle charge attacks (visual feedback + release detection)
+            HandleChargeAttacks();
+
             // We handle all input here instead of in the individual character scripts
             HandleLinkedInput();
 
@@ -122,16 +127,6 @@ namespace DogAndRobot.Core
             GridPosition robotDirection = _robotInput.GetMovementInput();
             GridPosition dogDirection = _dogInput.GetMovementInput();
 
-            // Track alternating taps for sprint (before movement consumes them)
-            if (robotDirection != GridPosition.Zero)
-            {
-                TrackAlternatingTap(_robotInput, robotDirection);
-            }
-            if (dogDirection != GridPosition.Zero)
-            {
-                TrackAlternatingTap(_dogInput, dogDirection);
-            }
-
             if (_isJoined)
             {
                 HandleJoinedInput(robotDirection, dogDirection);
@@ -140,59 +135,6 @@ namespace DogAndRobot.Core
             {
                 HandleSeparateInput(robotDirection, dogDirection);
             }
-        }
-
-        // === ALTERNATING TAP DETECTION ===
-
-        private void TrackAlternatingTap(CharacterInputHandler tapper, GridPosition direction)
-        {
-            // Check if this continues the alternating pattern in the same direction
-            if (direction == _sprintTapDir
-                && tapper != _lastSprintTapper
-                && (Time.time - _lastSprintTapTime) < SprintTapWindow)
-            {
-                _sprintTapCount++;
-            }
-            else
-            {
-                // Start a new sequence
-                _sprintTapDir = direction;
-                _sprintTapCount = 1;
-            }
-
-            _lastSprintTapper = tapper;
-            _lastSprintTapTime = Time.time;
-
-            // 3rd tap + held = sprint
-            if (_sprintTapCount >= 3 && tapper.IsDirectionHeld(direction))
-            {
-                TriggerSprint(direction);
-            }
-        }
-
-        private void TriggerSprint(GridPosition direction)
-        {
-            if (_isJoined)
-            {
-                StartJoinedSprint(direction);
-            }
-            else
-            {
-                // Both characters sprint when alternating input triggers
-                if (robot.SprintState == MoveState.Normal)
-                    robot.StartSprint(direction);
-                if (dog.SprintState == MoveState.Normal)
-                    dog.StartSprint(direction);
-            }
-            ResetSprintTapTracking();
-        }
-
-        private void ResetSprintTapTracking()
-        {
-            _sprintTapDir = GridPosition.Zero;
-            _sprintTapCount = 0;
-            _lastSprintTapper = null;
-            _lastSprintTapTime = -999f;
         }
 
         // === JOINED / SEPARATE INPUT ===
@@ -204,13 +146,20 @@ namespace DogAndRobot.Core
             {
                 _lastRobotDirection = robotDir;
                 _lastRobotInputTime = Time.time;
+                _lastRobotTapDir = robotDir;
+                _lastRobotTapTime = Time.time;
             }
 
             if (dogDir != GridPosition.Zero)
             {
                 _lastDogDirection = dogDir;
                 _lastDogInputTime = Time.time;
+                _lastDogTapDir = dogDir;
+                _lastDogTapTime = Time.time;
             }
+
+            // Check for joint attack (both tap same direction within window)
+            if (HandleJointAttack(robotDir, dogDir)) return;
 
             // Check if both inputs happened within our window
             bool bothInputsRecent = (Time.time - _lastRobotInputTime) < SeparationInputWindow
@@ -234,6 +183,18 @@ namespace DogAndRobot.Core
                 _lastRobotDirection = GridPosition.Zero;
                 _lastDogDirection = GridPosition.Zero;
                 _hasPendingMovement = false;
+                return;
+            }
+
+            // Check for sprint trigger from either input handler
+            if (_robotInput.SprintTriggered && _robotInput.IsDirectionHeld(_robotInput.SprintDirection))
+            {
+                StartJoinedSprint(_robotInput.SprintDirection);
+                return;
+            }
+            if (_dogInput.SprintTriggered && _dogInput.IsDirectionHeld(_dogInput.SprintDirection))
+            {
+                StartJoinedSprint(_dogInput.SprintDirection);
                 return;
             }
 
@@ -284,6 +245,35 @@ namespace DogAndRobot.Core
 
         private void HandleSeparateInput(GridPosition robotDir, GridPosition dogDir)
         {
+            // Track taps for joint attack
+            if (robotDir != GridPosition.Zero)
+            {
+                _lastRobotTapDir = robotDir;
+                _lastRobotTapTime = Time.time;
+            }
+            if (dogDir != GridPosition.Zero)
+            {
+                _lastDogTapDir = dogDir;
+                _lastDogTapTime = Time.time;
+            }
+
+            // Check for joint attack
+            if (HandleJointAttack(robotDir, dogDir)) return;
+
+            // Check sprint triggers per character
+            if (_robotInput.SprintTriggered && _robotInput.IsDirectionHeld(_robotInput.SprintDirection)
+                && robot.SprintState == MoveState.Normal)
+            {
+                _activeSprintDir = _robotInput.SprintDirection;
+                robot.StartSprint(_robotInput.SprintDirection);
+            }
+            if (_dogInput.SprintTriggered && _dogInput.IsDirectionHeld(_dogInput.SprintDirection)
+                && dog.SprintState == MoveState.Normal)
+            {
+                _activeSprintDir = _dogInput.SprintDirection;
+                dog.StartSprint(_dogInput.SprintDirection);
+            }
+
             // Normal movement for non-sprinting characters
             if (robotDir != GridPosition.Zero && robot.SprintState == MoveState.Normal)
             {
@@ -294,6 +284,90 @@ namespace DogAndRobot.Core
             {
                 dog.TryMove(dogDir);
             }
+        }
+
+        // === CHARGE & JOINT ATTACKS ===
+
+        private void HandleChargeAttacks()
+        {
+            // Don't process charge during sprint
+            if (IsAnySprinting()) return;
+
+            // Visual shake while charging
+            var feelSettings = GameFeelManager.Instance?.Settings;
+            float shakeIntensity = feelSettings?.chargeShakeIntensity ?? 0.02f;
+
+            if (_robotInput.IsCharging && _robotInput.ChargeReady)
+            {
+                GameFeelManager.ObjectShake(robot.transform, Vector2.one, Time.deltaTime, shakeIntensity);
+            }
+            if (_dogInput.IsCharging && _dogInput.ChargeReady)
+            {
+                GameFeelManager.ObjectShake(dog.transform, Vector2.one, Time.deltaTime, shakeIntensity);
+            }
+
+            // Check for charge release
+            HandleChargeRelease(_robotInput, robot);
+            HandleChargeRelease(_dogInput, dog);
+        }
+
+        private void HandleChargeRelease(CharacterInputHandler input, GridCharacter character)
+        {
+            if (!input.ChargeReleased) return;
+
+            GridPosition dir = input.ChargeDirection;
+            GridPosition targetPos = character.GridPosition + dir;
+            Enemy enemy = character.FindVulnerableEnemyAt(targetPos);
+
+            if (enemy != null)
+            {
+                enemy.TryLaunch(dir);
+
+                // Squash the attacker
+                Vector2 dir2d = new Vector2(dir.x, dir.y);
+                GameFeelManager.Squash(character.transform, dir2d);
+            }
+        }
+
+        /// <summary>
+        /// Checks if both players tapped the same direction within the joint attack window.
+        /// Returns true if a joint attack was triggered (consuming the input).
+        /// </summary>
+        private bool HandleJointAttack(GridPosition robotDir, GridPosition dogDir)
+        {
+            // Need both taps to be recent and in the same direction
+            bool bothRecent = (Time.time - _lastRobotTapTime) < JointAttackWindow
+                           && (Time.time - _lastDogTapTime) < JointAttackWindow;
+
+            if (!bothRecent) return false;
+            if (_lastRobotTapDir == GridPosition.Zero || _lastDogTapDir == GridPosition.Zero) return false;
+            if (_lastRobotTapDir != _lastDogTapDir) return false;
+
+            GridPosition dir = _lastRobotTapDir;
+
+            // Find a vulnerable enemy in that direction from either character
+            Enemy enemy = robot.FindVulnerableEnemyAt(robot.GridPosition + dir);
+            if (enemy == null)
+                enemy = dog.FindVulnerableEnemyAt(dog.GridPosition + dir);
+
+            if (enemy == null) return false;
+
+            // Joint attack!
+            enemy.TryLaunch(dir);
+
+            // Juice: squash both characters
+            Vector2 dir2d = new Vector2(dir.x, dir.y);
+            GameFeelManager.Squash(robot.transform, dir2d);
+            GameFeelManager.Squash(dog.transform, dir2d);
+
+            // Extra screen shake for joint attack
+            GameFeelManager.ScreenShake(0.15f, 0.06f);
+
+            // Clear tap tracking
+            _lastRobotTapDir = GridPosition.Zero;
+            _lastDogTapDir = GridPosition.Zero;
+
+            return true;
         }
 
         // === SPRINT MANAGEMENT ===
@@ -318,7 +392,8 @@ namespace DogAndRobot.Core
             }
             else
             {
-                HandleSeparateSprintUpdate();
+                HandleSeparateSprintUpdate(robot, _robotInput);
+                HandleSeparateSprintUpdate(dog, _dogInput);
             }
         }
 
@@ -350,7 +425,7 @@ namespace DogAndRobot.Core
                 {
                     robot.StopSprintImmediate();
                     dog.StopSprintImmediate();
-                    ResetSprintTapTracking();
+                    ResetAllSprintInput();
                 }
             }
 
@@ -365,7 +440,7 @@ namespace DogAndRobot.Core
             if (robot.SprintState == MoveState.Normal && dog.SprintState == MoveState.Normal)
             {
                 _activeSprintDir = GridPosition.Zero;
-                ResetSprintTapTracking();
+                ResetAllSprintInput();
                 // Re-sync dog grid position to robot
                 dog.TeleportTo(robot.GridPosition);
                 if (_isJoined)
@@ -375,43 +450,41 @@ namespace DogAndRobot.Core
             }
         }
 
-        private void HandleSeparateSprintUpdate()
+        private void HandleSeparateSprintUpdate(GridCharacter character, CharacterInputHandler input)
         {
-            // Both characters share the same sprint direction from alternating input
-            if (robot.SprintState == MoveState.Normal && dog.SprintState == MoveState.Normal)
-                return;
+            if (character.SprintState == MoveState.Normal) return;
 
-            // Check hold/opposite on either input during sprint
-            if (robot.SprintState == MoveState.Sprinting || dog.SprintState == MoveState.Sprinting)
+            if (character.SprintState == MoveState.Sprinting)
             {
-                GridPosition dir = _activeSprintDir;
-                bool stillHeld = _robotInput.IsDirectionHeld(dir) || _dogInput.IsDirectionHeld(dir);
+                GridPosition sprintDir = input.SprintDirection;
 
-                if (!stillHeld)
+                // Check if key still held
+                if (!input.IsDirectionHeld(sprintDir))
                 {
-                    if (robot.SprintState == MoveState.Sprinting) robot.StartBraking();
-                    if (dog.SprintState == MoveState.Sprinting) dog.StartBraking();
+                    character.StartBraking();
                 }
 
                 // Check opposite direction
-                GridPosition opposite = new GridPosition(-dir.x, -dir.y);
-                GridPosition robotHeld = _robotInput.GetHeldDirection();
-                GridPosition dogHeld = _dogInput.GetHeldDirection();
-
-                if (robotHeld == opposite || dogHeld == opposite)
+                GridPosition held = input.GetHeldDirection();
+                GridPosition opposite = new GridPosition(-sprintDir.x, -sprintDir.y);
+                if (held == opposite)
                 {
-                    if (robot.SprintState != MoveState.Normal) robot.StopSprintImmediate();
-                    if (dog.SprintState != MoveState.Normal) dog.StopSprintImmediate();
-                    ResetSprintTapTracking();
+                    character.StopSprintImmediate();
+                    input.ResetSprintState();
                 }
             }
 
-            // When both finish, clean up
-            if (robot.SprintState == MoveState.Normal && dog.SprintState == MoveState.Normal)
+            // When sprint ends, reset input
+            if (character.SprintState == MoveState.Normal)
             {
-                _activeSprintDir = GridPosition.Zero;
-                ResetSprintTapTracking();
+                input.ResetSprintState();
             }
+        }
+
+        private void ResetAllSprintInput()
+        {
+            _robotInput.ResetSprintState();
+            _dogInput.ResetSprintState();
         }
 
         // === SEPARATION / REJOIN ===

@@ -36,6 +36,16 @@ namespace DogAndRobot.Enemies
         // Fired when this enemy dies
         public static event System.Action OnEnemyDefeated;
 
+        // Vulnerable state
+        private bool _isVulnerable;
+        private float _vulnerableTimer;
+        private Coroutine _flashCoroutine;
+        private float[] _flashIntervalRef = new float[1];
+        // Store original damage sequence for recovery
+        private List<DamageType> _originalDamageSequence = new List<DamageType>();
+
+        public bool IsVulnerable => _isVulnerable;
+
         // Launch state
         private bool _isLaunched;
         private Vector2 _launchDirection;
@@ -55,6 +65,8 @@ namespace DogAndRobot.Enemies
         protected virtual void Start()
         {
             GenerateDamageSequence();
+            // Store original sequence for recovery
+            _originalDamageSequence.AddRange(_damageSequence);
             CreateHealthBar();
         }
         
@@ -171,10 +183,10 @@ namespace DogAndRobot.Enemies
             // Try to knock back
             TryKnockback(attackDirection);
 
-            // Check if dead — launch instead of immediate death
+            // Check if sequence depleted — enter vulnerable instead of immediate launch
             if (_damageSequence.Count == 0)
             {
-                StartLaunch(attackDirection);
+                EnterVulnerable();
             }
 
             return true;
@@ -224,6 +236,24 @@ namespace DogAndRobot.Enemies
         
         private void Update()
         {
+            // Vulnerable countdown
+            if (_isVulnerable)
+            {
+                _vulnerableTimer -= Time.deltaTime;
+
+                // Speed up flash in last 2 seconds
+                var feelSettings = GameFeelManager.Instance?.Settings;
+                float normalInterval = feelSettings?.vulnerableFlashInterval ?? 0.3f;
+                float urgentInterval = feelSettings?.vulnerableUrgentFlashInterval ?? 0.1f;
+                _flashIntervalRef[0] = _vulnerableTimer <= 2f ? urgentInterval : normalInterval;
+
+                if (_vulnerableTimer <= 0f)
+                {
+                    RecoverFromVulnerable();
+                    return;
+                }
+            }
+
             if (!_isLaunched) return;
 
             // Accelerate and move continuously in world space
@@ -236,6 +266,128 @@ namespace DogAndRobot.Enemies
             {
                 ExplodeOnWall();
             }
+        }
+
+        // === VULNERABLE STATE ===
+
+        private void EnterVulnerable()
+        {
+            var settings = SettingsManager.Instance?.settings;
+            _isVulnerable = true;
+            _vulnerableTimer = settings?.vulnerableDuration ?? 5f;
+
+            // Juice
+            GameFeelManager.HitStop();
+            GameFeelManager.ScreenShake();
+            GameFeelManager.ChromaticPulse(0.3f, 0.08f);
+
+            // Particles
+            GameFeelParticles.VulnerableBurst(transform.position);
+
+            // Start repeating flash
+            var feelSettings = GameFeelManager.Instance?.Settings;
+            _flashIntervalRef[0] = feelSettings?.vulnerableFlashInterval ?? 0.3f;
+            SpriteRenderer sr = GetComponent<SpriteRenderer>();
+            if (sr != null)
+            {
+                _flashCoroutine = GameFeelManager.PulseFlash(sr, _flashIntervalRef, settings?.vulnerableDuration ?? 5f);
+            }
+
+            // Hide health bar (sequence is empty)
+            if (_healthBarContainer != null)
+                _healthBarContainer.gameObject.SetActive(false);
+        }
+
+        /// <summary>
+        /// Push the vulnerable enemy one tile. Any character can push, no damage type check.
+        /// </summary>
+        public bool TryPush(GridPosition direction)
+        {
+            if (!_isVulnerable) return false;
+
+            TryKnockback(direction);
+
+            // Small juice
+            GameFeelManager.HitStop(0.03f);
+            SpriteRenderer sr = GetComponent<SpriteRenderer>();
+            if (sr != null)
+                GameFeelManager.Flash(sr);
+            Vector2 dir2d = new Vector2(direction.x, direction.y);
+            GameFeelParticles.HitBurst(transform.position, dir2d, Color.white, 3);
+
+            return true;
+        }
+
+        /// <summary>
+        /// Launch the vulnerable enemy (from charged or joint attack).
+        /// </summary>
+        public bool TryLaunch(GridPosition direction)
+        {
+            if (!_isVulnerable) return false;
+
+            // Stop flash
+            if (_flashCoroutine != null && GameFeelManager.Instance != null)
+            {
+                GameFeelManager.Instance.StopCoroutine(_flashCoroutine);
+                _flashCoroutine = null;
+            }
+
+            // Restore sprite color
+            SpriteRenderer sr = GetComponent<SpriteRenderer>();
+            if (sr != null)
+                sr.color = Color.white;
+
+            _isVulnerable = false;
+
+            // Bigger juice for launch
+            GameFeelManager.HitStop(0.08f);
+            GameFeelManager.ScreenShake(0.15f, 0.06f);
+            GameFeelManager.ChromaticPulse(0.6f, 0.12f);
+            GameFeelManager.TimeScalePunch(0.5f, 0.12f);
+
+            Vector2 dir2d = new Vector2(direction.x, direction.y);
+            GameFeelParticles.LaunchChargeBurst(transform.position, dir2d);
+
+            // Reuse existing launch logic
+            StartLaunch(direction);
+            return true;
+        }
+
+        private void RecoverFromVulnerable()
+        {
+            // Stop flash
+            if (_flashCoroutine != null && GameFeelManager.Instance != null)
+            {
+                GameFeelManager.Instance.StopCoroutine(_flashCoroutine);
+                _flashCoroutine = null;
+            }
+
+            // Restore sprite color
+            SpriteRenderer sr = GetComponent<SpriteRenderer>();
+            if (sr != null)
+                sr.color = Color.white;
+
+            _isVulnerable = false;
+
+            // Regenerate health segments from original sequence
+            var settings = SettingsManager.Instance?.settings;
+            int recoveryCount = Mathf.RoundToInt(settings?.vulnerableRecoveryHealth ?? 1);
+            recoveryCount = Mathf.Min(recoveryCount, _originalDamageSequence.Count);
+
+            _damageSequence.Clear();
+            for (int i = 0; i < recoveryCount; i++)
+            {
+                // Take from the end of the original sequence (last hits)
+                _damageSequence.Add(_originalDamageSequence[_originalDamageSequence.Count - recoveryCount + i]);
+            }
+
+            // Rebuild health bar
+            if (_healthBarContainer != null)
+                _healthBarContainer.gameObject.SetActive(true);
+            CreateHealthBar();
+
+            // Small recovery effect
+            GameFeelParticles.BlockSparks(transform.position);
         }
 
         private void StartLaunch(GridPosition direction)

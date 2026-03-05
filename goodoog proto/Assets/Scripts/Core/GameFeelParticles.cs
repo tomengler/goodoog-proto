@@ -158,6 +158,71 @@ namespace DogAndRobot.Core
         }
 
         /// <summary>
+        /// Large burst of white/yellow particles when enemy enters vulnerable state.
+        /// </summary>
+        public static void VulnerableBurst(Vector3 position, int count = 9)
+        {
+            if (Instance == null || Instance._squareParticlePrefab == null) return;
+
+            Color[] colors = new Color[]
+            {
+                new Color(1f, 1f, 1f, 0.9f),
+                new Color(1f, 1f, 0.7f, 0.9f),
+                new Color(1f, 0.95f, 0.5f, 0.8f),
+            };
+
+            for (int i = 0; i < count; i++)
+            {
+                GameObject p = Instantiate(Instance._squareParticlePrefab, position, Quaternion.identity);
+                p.transform.localScale = Vector3.one * Random.Range(0.08f, 0.16f);
+
+                SpriteRenderer sr = p.GetComponent<SpriteRenderer>();
+                if (sr != null) sr.color = colors[Random.Range(0, colors.Length)];
+
+                Rigidbody2D rb = p.GetComponent<Rigidbody2D>();
+                if (rb == null) rb = p.AddComponent<Rigidbody2D>();
+                rb.gravityScale = 1.5f;
+
+                float angle = Random.Range(0f, Mathf.PI * 2f);
+                float force = Random.Range(4f, 8f);
+                rb.linearVelocity = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * force;
+                rb.angularVelocity = Random.Range(-360f, 360f);
+
+                Destroy(p, 0.6f);
+            }
+        }
+
+        /// <summary>
+        /// Directional burst for charged/joint launch attacks. Bigger and faster than normal hit burst.
+        /// </summary>
+        public static void LaunchChargeBurst(Vector3 position, Vector2 direction, int count = 11)
+        {
+            if (Instance == null || Instance._squareParticlePrefab == null) return;
+
+            float baseAngle = Mathf.Atan2(direction.y, direction.x);
+
+            for (int i = 0; i < count; i++)
+            {
+                GameObject p = Instantiate(Instance._squareParticlePrefab, position, Quaternion.identity);
+                p.transform.localScale = Vector3.one * Random.Range(0.1f, 0.18f);
+
+                SpriteRenderer sr = p.GetComponent<SpriteRenderer>();
+                if (sr != null) sr.color = new Color(1f, 1f, 1f, 0.9f);
+
+                Rigidbody2D rb = p.GetComponent<Rigidbody2D>();
+                if (rb == null) rb = p.AddComponent<Rigidbody2D>();
+                rb.gravityScale = 1.5f;
+
+                float angle = baseAngle + Random.Range(-0.7f, 0.7f);
+                float force = Random.Range(6f, 12f);
+                rb.linearVelocity = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * force;
+                rb.angularVelocity = Random.Range(-540f, 540f);
+
+                Destroy(p, 0.5f);
+            }
+        }
+
+        /// <summary>
         /// Burst of particles when sprint starts, shooting backward from the character.
         /// </summary>
         public static void SprintBurst(Vector3 position, Vector2 direction, int count = 5)

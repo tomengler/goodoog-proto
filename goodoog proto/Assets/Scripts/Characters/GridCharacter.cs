@@ -99,6 +99,20 @@ namespace DogAndRobot.Characters
             Enemy enemy = FindEnemyAtPosition(newPosition);
             if (enemy != null)
             {
+                // If enemy is vulnerable, push it instead of attacking
+                if (enemy.IsVulnerable)
+                {
+                    if (enemy.TryPush(direction))
+                    {
+                        // Move into the space the enemy was pushed out of
+                        _gridPosition = newPosition;
+                        _targetWorldPosition = _gridPosition.ToWorldPosition(CellSize);
+                        IsMoving = true;
+                        return true;
+                    }
+                    return false;
+                }
+
                 // Try to attack the enemy
                 DamageType damageType = GetDamageType();
                 bool hit = enemy.TryTakeHit(damageType, direction, transform);
@@ -137,6 +151,17 @@ namespace DogAndRobot.Characters
                     return enemy;
                 }
             }
+            return null;
+        }
+
+        /// <summary>
+        /// Finds a vulnerable enemy at the given grid position. Used by CharacterLinkManager for charge/joint attacks.
+        /// </summary>
+        public Enemy FindVulnerableEnemyAt(GridPosition position)
+        {
+            Enemy enemy = FindEnemyAtPosition(position);
+            if (enemy != null && enemy.IsVulnerable)
+                return enemy;
             return null;
         }
 

@@ -40,6 +40,22 @@ namespace DogAndRobot.Core
         [Tooltip("Time window between taps to count as consecutive")]
         public float sprintTapWindow = 0.3f;
 
+        [Tooltip("How long the 3rd tap must be held before sprint activates")]
+        public float sprintHoldDuration = 0.15f;
+
+        [Header("Vulnerable State")]
+        [Tooltip("How long enemy stays vulnerable before recovering")]
+        public float vulnerableDuration = 5f;
+
+        [Tooltip("Damage sequence entries restored when enemy recovers from vulnerable")]
+        public float vulnerableRecoveryHealth = 1;
+
+        [Tooltip("Hold time before charge attack is ready")]
+        public float chargeAttackHoldDuration = 1.0f;
+
+        [Tooltip("Timing window for simultaneous input to trigger joint attack")]
+        public float jointAttackWindow = 0.15f;
+
         [Header("Joined Visual Settings")]
         [Tooltip("How far each character offsets from center when joined")]
         public float joinedOffset = 0.25f;
