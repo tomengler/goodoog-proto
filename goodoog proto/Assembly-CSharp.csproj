@@ -55,6 +55,7 @@
     <Compile Include="Assets\Scripts\Core\CharacterLinkManager.cs" />
     <Compile Include="Assets\Scripts\Core\WallManager.cs" />
     <Compile Include="Assets\Scripts\Characters\Dog.cs" />
+    <Compile Include="Assets\Scripts\Core\SFXManager.cs" />
     <Compile Include="Assets\Scripts\Core\DamageType.cs" />
     <Compile Include="Assets\Scripts\Enemies\Enemy.cs" />
     <Compile Include="Assets\Scripts\Core\GameFeelSettings.cs" />

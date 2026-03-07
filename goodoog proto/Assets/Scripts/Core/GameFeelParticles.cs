@@ -8,6 +8,13 @@ namespace DogAndRobot.Core
 
         [SerializeField] private GameObject _squareParticlePrefab;
 
+        public Sprite GetSquareSprite()
+        {
+            if (_squareParticlePrefab == null) return null;
+            var sr = _squareParticlePrefab.GetComponent<SpriteRenderer>();
+            return sr != null ? sr.sprite : null;
+        }
+
         private void Awake()
         {
             if (Instance != null && Instance != this) { Destroy(gameObject); return; }
@@ -220,6 +227,72 @@ namespace DogAndRobot.Core
 
                 Destroy(p, 0.5f);
             }
+        }
+
+        /// <summary>
+        /// Big directional spark burst for joint attacks. White/yellow sparks with extra force.
+        /// </summary>
+        public static void JointAttackBurst(Vector3 position, Vector2 direction, int count = 16)
+        {
+            if (Instance == null || Instance._squareParticlePrefab == null) return;
+
+            float baseAngle = Mathf.Atan2(direction.y, direction.x);
+
+            Color[] colors = new Color[]
+            {
+                new Color(1f, 1f, 1f, 1f),
+                new Color(1f, 1f, 0.7f, 0.9f),
+                new Color(1f, 0.9f, 0.4f, 0.9f),
+            };
+
+            for (int i = 0; i < count; i++)
+            {
+                GameObject p = Instantiate(Instance._squareParticlePrefab, position, Quaternion.identity);
+                p.transform.localScale = Vector3.one * Random.Range(0.08f, 0.2f);
+
+                SpriteRenderer sr = p.GetComponent<SpriteRenderer>();
+                if (sr != null) sr.color = colors[Random.Range(0, colors.Length)];
+
+                Rigidbody2D rb = p.GetComponent<Rigidbody2D>();
+                if (rb == null) rb = p.AddComponent<Rigidbody2D>();
+                rb.gravityScale = 1.5f;
+
+                float angle = baseAngle + Random.Range(-1.0f, 1.0f);
+                float force = Random.Range(6f, 14f);
+                rb.linearVelocity = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * force;
+                rb.angularVelocity = Random.Range(-720f, 720f);
+
+                Destroy(p, 0.6f);
+            }
+        }
+
+        /// <summary>
+        /// Particles that get sucked toward a center point during charge-up. Call each frame while charging.
+        /// </summary>
+        public static void ChargeSuckParticle(Vector3 center)
+        {
+            if (Instance == null || Instance._squareParticlePrefab == null) return;
+
+            // Spawn particle at random offset, it will be pulled in by the caller
+            float angle = Random.Range(0f, Mathf.PI * 2f);
+            float dist = Random.Range(0.8f, 1.5f);
+            Vector3 spawnPos = center + new Vector3(Mathf.Cos(angle), Mathf.Sin(angle), 0) * dist;
+
+            GameObject p = Instantiate(Instance._squareParticlePrefab, spawnPos, Quaternion.identity);
+            p.transform.localScale = Vector3.one * Random.Range(0.03f, 0.07f);
+
+            SpriteRenderer sr = p.GetComponent<SpriteRenderer>();
+            if (sr != null) sr.color = new Color(1f, 1f, 1f, 0.8f);
+
+            Rigidbody2D rb = p.GetComponent<Rigidbody2D>();
+            if (rb == null) rb = p.AddComponent<Rigidbody2D>();
+            rb.gravityScale = 0f;
+
+            // Velocity toward center
+            Vector2 toCenter = ((Vector2)center - (Vector2)spawnPos).normalized;
+            rb.linearVelocity = toCenter * Random.Range(3f, 6f);
+
+            Destroy(p, 0.4f);
         }
 
         /// <summary>

@@ -36,6 +36,20 @@ namespace DogAndRobot.Characters
 
 
 
+        /// <summary>
+        /// When set, sprint enemy collisions call this instead of attacking directly.
+        /// Used by CharacterLinkManager for joined sprint to try both damage types.
+        /// Parameters: enemy, sprint direction.
+        /// </summary>
+        public System.Action<Enemy, GridPosition> SprintEnemyHitOverride { get; set; }
+
+        /// <summary>
+        /// Set after a successful sprint hit. CharacterLinkManager reads and clears this
+        /// to enable the lunge follow-up mechanic.
+        /// </summary>
+        public Enemy LastSprintHitEnemy { get; set; }
+        public GridPosition LastSprintHitDirection { get; set; }
+
         // === SPRINT STATE ===
         public MoveState SprintState => _sprintState;
         private MoveState _sprintState = MoveState.Normal;
@@ -99,15 +113,20 @@ namespace DogAndRobot.Characters
             Enemy enemy = FindEnemyAtPosition(newPosition);
             if (enemy != null)
             {
+                GridPosition enemyPosBefore = enemy.GridPosition;
+
                 // If enemy is vulnerable, push it instead of attacking
                 if (enemy.IsVulnerable)
                 {
                     if (enemy.TryPush(direction))
                     {
-                        // Move into the space the enemy was pushed out of
-                        _gridPosition = newPosition;
-                        _targetWorldPosition = _gridPosition.ToWorldPosition(CellSize);
-                        IsMoving = true;
+                        // Only move into the space if the enemy actually moved out
+                        if (enemy.GridPosition != enemyPosBefore)
+                        {
+                            _gridPosition = newPosition;
+                            _targetWorldPosition = _gridPosition.ToWorldPosition(CellSize);
+                            IsMoving = true;
+                        }
                         return true;
                     }
                     return false;
@@ -119,10 +138,13 @@ namespace DogAndRobot.Characters
 
                 if (hit)
                 {
-                    // Follow up: move into the space the enemy was knocked out of
-                    _gridPosition = newPosition;
-                    _targetWorldPosition = _gridPosition.ToWorldPosition(CellSize);
-                    IsMoving = true;
+                    // Only follow up into the space if the enemy actually moved out of it
+                    if (enemy == null || enemy.GridPosition != enemyPosBefore)
+                    {
+                        _gridPosition = newPosition;
+                        _targetWorldPosition = _gridPosition.ToWorldPosition(CellSize);
+                        IsMoving = true;
+                    }
                     return true;
                 }
 
@@ -143,15 +165,7 @@ namespace DogAndRobot.Characters
 
         private Enemy FindEnemyAtPosition(GridPosition position)
         {
-            Enemy[] enemies = FindObjectsByType<Enemy>(FindObjectsSortMode.None);
-            foreach (Enemy enemy in enemies)
-            {
-                if (enemy.GridPosition == position)
-                {
-                    return enemy;
-                }
-            }
-            return null;
+            return Enemy.FindAtPosition(position);
         }
 
         /// <summary>
@@ -295,6 +309,50 @@ namespace DogAndRobot.Characters
                     EndSprint();
                     return;
                 }
+
+                // Check for enemy at the new cell
+                Enemy sprintEnemy = FindEnemyAtPosition(newGridPos);
+                if (sprintEnemy != null)
+                {
+                    // Snap back to tile before the enemy
+                    _targetWorldPosition = _gridPosition.ToWorldPosition(CellSize);
+                    transform.position = _targetWorldPosition + _visualOffset;
+                    EndSprint();
+
+                    if (SprintEnemyHitOverride != null)
+                    {
+                        SprintEnemyHitOverride(sprintEnemy, _sprintDirection);
+                    }
+                    else
+                    {
+                        // Attack with same type matching as regular attacks
+                        if (sprintEnemy.IsVulnerable)
+                        {
+                            sprintEnemy.TryPush(_sprintDirection);
+                            LastSprintHitEnemy = sprintEnemy;
+                            LastSprintHitDirection = _sprintDirection;
+                        }
+                        else
+                        {
+                            DamageType damageType = GetDamageType();
+                            if (sprintEnemy.TryTakeHit(damageType, _sprintDirection, transform, suppressAudio: true))
+                            {
+                                LastSprintHitEnemy = sprintEnemy;
+                                LastSprintHitDirection = _sprintDirection;
+                            }
+                        }
+                    }
+
+                    SFXManager.PlayMediumHit();
+
+                    // Extra slam juice
+                    Vector2 slamDir = new Vector2(_sprintDirection.x, _sprintDirection.y);
+                    GameFeelManager.ScreenShake(0.2f, 0.08f);
+                    GameFeelManager.HitStop(0.08f);
+                    GameFeelParticles.HitBurst(sprintEnemy.transform.position, slamDir, Color.white, 10);
+                    return;
+                }
+
                 _gridPosition = newGridPos;
             }
 
@@ -334,6 +392,47 @@ namespace DogAndRobot.Characters
                     EndSprint();
                     return;
                 }
+
+                // Check for enemy at the new cell (same as sprinting)
+                Enemy brakeEnemy = FindEnemyAtPosition(newGridPos);
+                if (brakeEnemy != null)
+                {
+                    _targetWorldPosition = _gridPosition.ToWorldPosition(CellSize);
+                    transform.position = _targetWorldPosition + _visualOffset;
+                    EndSprint();
+
+                    if (SprintEnemyHitOverride != null)
+                    {
+                        SprintEnemyHitOverride(brakeEnemy, _sprintDirection);
+                    }
+                    else
+                    {
+                        if (brakeEnemy.IsVulnerable)
+                        {
+                            brakeEnemy.TryPush(_sprintDirection);
+                            LastSprintHitEnemy = brakeEnemy;
+                            LastSprintHitDirection = _sprintDirection;
+                        }
+                        else
+                        {
+                            DamageType damageType = GetDamageType();
+                            if (brakeEnemy.TryTakeHit(damageType, _sprintDirection, transform, suppressAudio: true))
+                            {
+                                LastSprintHitEnemy = brakeEnemy;
+                                LastSprintHitDirection = _sprintDirection;
+                            }
+                        }
+                    }
+
+                    SFXManager.PlayMediumHit();
+
+                    Vector2 slamDir = new Vector2(_sprintDirection.x, _sprintDirection.y);
+                    GameFeelManager.ScreenShake(0.15f, 0.06f);
+                    GameFeelManager.HitStop(0.06f);
+                    GameFeelParticles.HitBurst(brakeEnemy.transform.position, slamDir, Color.white, 8);
+                    return;
+                }
+
                 _gridPosition = newGridPos;
             }
 

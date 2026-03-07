@@ -10,8 +10,8 @@ namespace DogAndRobot.Core
         [Header("Wall Settings")]
         [SerializeField] private GameObject _wallTilePrefab;
         [SerializeField] private Color _wallColor = new Color(0.15f, 0.15f, 0.2f, 1f);
-        [SerializeField] private int _arenaWidth = 25;
-        [SerializeField] private int _arenaHeight = 12;
+        [SerializeField] private int _arenaWidth = 27;
+        [SerializeField] private int _arenaHeight = 14;
 
         private HashSet<GridPosition> _wallPositions = new HashSet<GridPosition>();
 

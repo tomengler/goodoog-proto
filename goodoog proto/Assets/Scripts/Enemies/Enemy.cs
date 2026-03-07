@@ -11,9 +11,23 @@ namespace DogAndRobot.Enemies
 {
     public class Enemy : MonoBehaviour
     {
+        // === STATIC REGISTRY ===
+        private static readonly List<Enemy> _allEnemies = new List<Enemy>();
+        public static IReadOnlyList<Enemy> All => _allEnemies;
+
+        public static Enemy FindAtPosition(GridPosition position)
+        {
+            for (int i = 0; i < _allEnemies.Count; i++)
+            {
+                if (_allEnemies[i]._gridPosition == position)
+                    return _allEnemies[i];
+            }
+            return null;
+        }
+
         [Header("Grid Settings")]
         [SerializeField] private GridPosition _gridPosition;
-        
+
         public GridPosition GridPosition => _gridPosition;
         
         // The sequence of damage types needed to kill this enemy
@@ -27,11 +41,17 @@ namespace DogAndRobot.Enemies
         
         // Segment visuals
         private List<GameObject> _healthSegments = new List<GameObject>();
-        
+        private GameObject _launchSegment;
+
         // Colors for damage types
         [Header("Damage Type Colors")]
         public Color dogDamageColor = new Color(1f, 0.5f, 0f); // Orange
         public Color robotDamageColor = new Color(0.3f, 0.5f, 1f); // Blue
+        public Color launchSegmentColor = new Color(0.7f, 0.2f, 1f); // Purple
+
+        [Header("Enemy Body Colors")]
+        public Color dogBodyColor = new Color(0.6f, 0.28f, 0f); // Dark orange
+        public Color robotBodyColor = new Color(0.15f, 0.28f, 0.55f); // Dark blue
 
         // Fired when this enemy dies
         public static event System.Action OnEnemyDefeated;
@@ -57,9 +77,15 @@ namespace DogAndRobot.Enemies
         
         protected virtual void Awake()
         {
+            _allEnemies.Add(this);
             // Initialize grid position from world position
             _gridPosition = GridPosition.FromWorldPosition(transform.position, CellSize);
             transform.position = _gridPosition.ToWorldPosition(CellSize);
+        }
+
+        protected virtual void OnDestroy()
+        {
+            _allEnemies.Remove(this);
         }
         
         protected virtual void Start()
@@ -68,8 +94,20 @@ namespace DogAndRobot.Enemies
             // Store original sequence for recovery
             _originalDamageSequence.AddRange(_damageSequence);
             CreateHealthBar();
+            UpdateBodyColor();
         }
         
+        private void UpdateBodyColor()
+        {
+            SpriteRenderer sr = GetComponent<SpriteRenderer>();
+            if (sr == null) return;
+
+            if (_damageSequence.Count == 0)
+                return; // Vulnerable state handles its own color
+
+            sr.color = _damageSequence[0] == DamageType.Dog ? dogBodyColor : robotBodyColor;
+        }
+
         /// <summary>
         /// Override this in child classes to create different sequences.
         /// </summary>
@@ -100,33 +138,55 @@ namespace DogAndRobot.Enemies
                 Destroy(segment);
             }
             _healthSegments.Clear();
+
+            if (_launchSegment != null)
+            {
+                Destroy(_launchSegment);
+                _launchSegment = null;
+            }
             
-            // Create a segment for each hit in the sequence
+            // Create a segment for each hit in the sequence, plus one purple launch segment
             float segmentWidth = 0.18f;
-            float totalWidth = segmentWidth * _damageSequence.Count;
+            int totalCount = _damageSequence.Count + 1; // +1 for launch segment
+            float totalWidth = segmentWidth * totalCount;
             float startX = -totalWidth / 2f + segmentWidth / 2f;
-            
+
             for (int i = 0; i < _damageSequence.Count; i++)
             {
                 GameObject segment = Instantiate(_healthSegmentPrefab, _healthBarContainer);
                 segment.transform.localPosition = new Vector3(startX + i * segmentWidth, 0, 0);
-                
+
                 // Color based on damage type
                 SpriteRenderer sr = segment.GetComponent<SpriteRenderer>();
                 if (sr != null)
                 {
                     sr.color = _damageSequence[i] == DamageType.Dog ? dogDamageColor : robotDamageColor;
                 }
-                
+
                 _healthSegments.Add(segment);
             }
+
+            // Purple launch segment at the end
+            _launchSegment = Instantiate(_healthSegmentPrefab, _healthBarContainer);
+            _launchSegment.transform.localPosition = new Vector3(startX + _damageSequence.Count * segmentWidth, 0, 0);
+            SpriteRenderer launchSr = _launchSegment.GetComponent<SpriteRenderer>();
+            if (launchSr != null) launchSr.color = launchSegmentColor;
         }
         
+        /// <summary>
+        /// Returns the next damage type needed without consuming it, or null if sequence is empty.
+        /// </summary>
+        public DamageType? PeekNextDamageType()
+        {
+            if (_damageSequence.Count == 0) return null;
+            return _damageSequence[0];
+        }
+
         /// <summary>
         /// Called when a character tries to attack this enemy.
         /// Returns true if the attack was successful (correct damage type).
         /// </summary>
-        public bool TryTakeHit(DamageType damageType, GridPosition attackDirection, Transform attacker = null)
+        public bool TryTakeHit(DamageType damageType, GridPosition attackDirection, Transform attacker = null, bool suppressAudio = false)
         {
             if (_damageSequence.Count == 0)
                 return false;
@@ -142,8 +202,14 @@ namespace DogAndRobot.Enemies
             // Correct hit!
             Debug.Log($"Hit! {_damageSequence.Count - 1} hits remaining");
 
+            if (!suppressAudio)
+                SFXManager.PlayLightHit();
+
             // Remove the first damage type from sequence
             _damageSequence.RemoveAt(0);
+
+            // Update body color to reflect new required damage type
+            UpdateBodyColor();
 
             // Juice: direction as Vector2 for effects
             Vector2 attackDir = new Vector2(attackDirection.x, attackDirection.y);
@@ -214,6 +280,8 @@ namespace DogAndRobot.Enemies
         {
             Vector2 attackDir = new Vector2(attackDirection.x, attackDirection.y);
 
+            SFXManager.PlayBlock();
+
             // Enemy shakes in place
             GameFeelManager.ObjectShake(transform, attackDir);
 
@@ -276,6 +344,8 @@ namespace DogAndRobot.Enemies
             _isVulnerable = true;
             _vulnerableTimer = settings?.vulnerableDuration ?? 5f;
 
+            SFXManager.PlayGuardBreak();
+
             // Juice
             GameFeelManager.HitStop();
             GameFeelManager.ScreenShake();
@@ -284,18 +354,19 @@ namespace DogAndRobot.Enemies
             // Particles
             GameFeelParticles.VulnerableBurst(transform.position);
 
-            // Start repeating flash
+            // Start repeating flash — set base color to light grey so it pulses grey → white
             var feelSettings = GameFeelManager.Instance?.Settings;
             _flashIntervalRef[0] = feelSettings?.vulnerableFlashInterval ?? 0.3f;
             SpriteRenderer sr = GetComponent<SpriteRenderer>();
             if (sr != null)
             {
+                sr.color = new Color(0.75f, 0.75f, 0.75f);
                 _flashCoroutine = GameFeelManager.PulseFlash(sr, _flashIntervalRef, settings?.vulnerableDuration ?? 5f);
             }
 
-            // Hide health bar (sequence is empty)
-            if (_healthBarContainer != null)
-                _healthBarContainer.gameObject.SetActive(false);
+            // Hide regular health segments but keep launch segment visible
+            foreach (var seg in _healthSegments)
+                if (seg != null) seg.SetActive(false);
         }
 
         /// <summary>
@@ -320,8 +391,9 @@ namespace DogAndRobot.Enemies
 
         /// <summary>
         /// Launch the vulnerable enemy (from charged or joint attack).
+        /// chargeStrength 0-1 scales launch speed (1 = full power, joint attacks always use 1).
         /// </summary>
-        public bool TryLaunch(GridPosition direction)
+        public bool TryLaunch(GridPosition direction, float chargeStrength = 1f)
         {
             if (!_isVulnerable) return false;
 
@@ -339,17 +411,27 @@ namespace DogAndRobot.Enemies
 
             _isVulnerable = false;
 
-            // Bigger juice for launch
-            GameFeelManager.HitStop(0.08f);
-            GameFeelManager.ScreenShake(0.15f, 0.06f);
-            GameFeelManager.ChromaticPulse(0.6f, 0.12f);
-            GameFeelManager.TimeScalePunch(0.5f, 0.12f);
+            // Pop the launch segment
+            if (_launchSegment != null)
+            {
+                GameFeelManager.SegmentPop(_launchSegment);
+                _launchSegment = null;
+            }
+
+            SFXManager.PlayHeavyHit();
+
+            // Bigger juice for launch — scale with charge strength
+            GameFeelManager.HitStop(0.05f + chargeStrength * 0.05f);
+            GameFeelManager.ScreenShake(0.1f + chargeStrength * 0.1f, 0.03f + chargeStrength * 0.05f);
+            GameFeelManager.ChromaticPulse(0.3f + chargeStrength * 0.4f, 0.08f + chargeStrength * 0.06f);
+            GameFeelManager.TimeScalePunch(0.5f, 0.08f + chargeStrength * 0.06f);
 
             Vector2 dir2d = new Vector2(direction.x, direction.y);
-            GameFeelParticles.LaunchChargeBurst(transform.position, dir2d);
+            int particleCount = Mathf.RoundToInt(Mathf.Lerp(5f, 14f, chargeStrength));
+            GameFeelParticles.LaunchChargeBurst(transform.position, dir2d, particleCount);
 
-            // Reuse existing launch logic
-            StartLaunch(direction);
+            // Reuse existing launch logic with scaled speed
+            StartLaunch(direction, chargeStrength);
             return true;
         }
 
@@ -381,22 +463,23 @@ namespace DogAndRobot.Enemies
                 _damageSequence.Add(_originalDamageSequence[_originalDamageSequence.Count - recoveryCount + i]);
             }
 
-            // Rebuild health bar
-            if (_healthBarContainer != null)
-                _healthBarContainer.gameObject.SetActive(true);
+            // Rebuild health bar (CreateHealthBar destroys old segments and recreates all including launch segment)
             CreateHealthBar();
+            UpdateBodyColor();
 
             // Small recovery effect
             GameFeelParticles.BlockSparks(transform.position);
         }
 
-        private void StartLaunch(GridPosition direction)
+        private void StartLaunch(GridPosition direction, float chargeStrength = 1f)
         {
             _isLaunched = true;
             _launchDirection = new Vector2(direction.x, direction.y).normalized;
 
             var settings = GameFeelManager.Instance?.Settings;
-            _launchSpeed = settings?.launchSpeed ?? 20f;
+            float baseSpeed = settings?.launchSpeed ?? 20f;
+            // Scale launch speed: minimum 30% at low charge, 100% at full
+            _launchSpeed = baseSpeed * Mathf.Lerp(0.3f, 1f, chargeStrength);
 
             // Hide health bar
             if (_healthBarContainer != null)

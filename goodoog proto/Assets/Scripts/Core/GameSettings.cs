@@ -53,6 +53,9 @@ namespace DogAndRobot.Core
         [Tooltip("Hold time before charge attack is ready")]
         public float chargeAttackHoldDuration = 1.0f;
 
+        [Tooltip("Time for the charge bar to fill from 0 to 100%")]
+        public float chargeBarFillDuration = 2.0f;
+
         [Tooltip("Timing window for simultaneous input to trigger joint attack")]
         public float jointAttackWindow = 0.15f;
 
