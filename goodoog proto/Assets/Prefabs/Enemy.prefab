@@ -110,8 +110,11 @@ MonoBehaviour:
     y: 0
   _healthBarContainer: {fileID: 7636152962011268003}
   _healthSegmentPrefab: {fileID: 268744944868677318, guid: c10684e4e761eb1448a5a16678ac1566, type: 3}
-  dogDamageColor: {r: 1, g: 0.5, b: 0, a: 1}
-  robotDamageColor: {r: 0.3, g: 0.5, b: 1, a: 1}
+  dogDamageColor: {r: 1, g: 0.831, b: 0.631, a: 1}
+  robotDamageColor: {r: 0.631, g: 0.655, b: 1, a: 1}
+  launchSegmentColor: {r: 0.7, g: 0.2, b: 1, a: 1}
+  dogBodyColor: {r: 1, g: 0.831, b: 0.631, a: 1}
+  robotBodyColor: {r: 0.631, g: 0.655, b: 1, a: 1}
 --- !u!1 &8281353948825525919
 GameObject:
   m_ObjectHideFlags: 0

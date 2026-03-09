@@ -43,15 +43,21 @@ namespace DogAndRobot.Enemies
         private List<GameObject> _healthSegments = new List<GameObject>();
         private GameObject _launchSegment;
 
-        // Colors for damage types
+        // Colors for damage types — matched to character sprite colors
         [Header("Damage Type Colors")]
-        public Color dogDamageColor = new Color(1f, 0.5f, 0f); // Orange
-        public Color robotDamageColor = new Color(0.3f, 0.5f, 1f); // Blue
+        public Color dogDamageColor = new Color(1f, 0.831f, 0.631f); // #FFD4A1
+        public Color robotDamageColor = new Color(0.631f, 0.655f, 1f); // #A1A7FF
         public Color launchSegmentColor = new Color(0.7f, 0.2f, 1f); // Purple
 
         [Header("Enemy Body Colors")]
-        public Color dogBodyColor = new Color(0.6f, 0.28f, 0f); // Dark orange
-        public Color robotBodyColor = new Color(0.15f, 0.28f, 0.55f); // Dark blue
+        public Color dogBodyColor = new Color(1f, 0.831f, 0.631f); // #FFD4A1
+        public Color robotBodyColor = new Color(0.631f, 0.655f, 1f); // #A1A7FF
+
+        // Inner body visual (colored square inside black outer square)
+        private SpriteRenderer _innerBodySr;
+
+        // Hit string UI visibility
+        private static bool _showHitStrings = true;
 
         // Fired when this enemy dies
         public static event System.Action OnEnemyDefeated;
@@ -90,22 +96,40 @@ namespace DogAndRobot.Enemies
         
         protected virtual void Start()
         {
+            SetupInnerBody();
             GenerateDamageSequence();
             // Store original sequence for recovery
             _originalDamageSequence.AddRange(_damageSequence);
             CreateHealthBar();
             UpdateBodyColor();
         }
+
+        private void SetupInnerBody()
+        {
+            // Make outer square black
+            SpriteRenderer outerSr = GetComponent<SpriteRenderer>();
+            if (outerSr == null) return;
+            outerSr.color = Color.black;
+
+            // Create inner colored square at 50% size
+            GameObject inner = new GameObject("InnerBody");
+            inner.transform.SetParent(transform);
+            inner.transform.localPosition = Vector3.zero;
+            inner.transform.localScale = new Vector3(0.5f, 0.5f, 1f);
+            _innerBodySr = inner.AddComponent<SpriteRenderer>();
+            _innerBodySr.sprite = outerSr.sprite;
+            _innerBodySr.sortingLayerName = outerSr.sortingLayerName;
+            _innerBodySr.sortingOrder = outerSr.sortingOrder + 1;
+        }
         
         private void UpdateBodyColor()
         {
-            SpriteRenderer sr = GetComponent<SpriteRenderer>();
-            if (sr == null) return;
+            if (_innerBodySr == null) return;
 
             if (_damageSequence.Count == 0)
                 return; // Vulnerable state handles its own color
 
-            sr.color = _damageSequence[0] == DamageType.Dog ? dogBodyColor : robotBodyColor;
+            _innerBodySr.color = _damageSequence[0] == DamageType.Dog ? dogBodyColor : robotBodyColor;
         }
 
         /// <summary>
@@ -132,6 +156,9 @@ namespace DogAndRobot.Enemies
                 return;
             }
             
+            // Respect hit string toggle
+            _healthBarContainer.gameObject.SetActive(_showHitStrings);
+
             // Clear any existing segments
             foreach (var segment in _healthSegments)
             {
@@ -224,10 +251,9 @@ namespace DogAndRobot.Enemies
             // Juice: enemy stretch in knockback direction
             GameFeelManager.Stretch(transform, attackDir);
 
-            // Juice: flash white
-            SpriteRenderer sr = GetComponent<SpriteRenderer>();
-            if (sr != null)
-                GameFeelManager.Flash(sr);
+            // Juice: flash white (inner body)
+            if (_innerBodySr != null)
+                GameFeelManager.Flash(_innerBodySr);
 
             // Juice: screen shake
             GameFeelManager.ScreenShake();
@@ -235,6 +261,9 @@ namespace DogAndRobot.Enemies
             // Layer C: hit particles
             Color particleColor = damageType == DamageType.Dog ? dogDamageColor : robotDamageColor;
             GameFeelParticles.HitBurst(transform.position, attackDir, particleColor);
+
+            // Arcady impact flash (DBFZ-style cross + ring + speed lines)
+            GameFeelParticles.ImpactFlash(transform.position, attackDir, particleColor, 1.3f);
 
             // Layer C: chromatic aberration
             GameFeelManager.ChromaticPulse(0.3f, 0.08f);
@@ -304,6 +333,17 @@ namespace DogAndRobot.Enemies
         
         private void Update()
         {
+            // Toggle hit string UI with Q
+            if (UnityEngine.Input.GetKeyDown(KeyCode.Q))
+            {
+                _showHitStrings = !_showHitStrings;
+                foreach (var enemy in _allEnemies)
+                {
+                    if (enemy._healthBarContainer != null)
+                        enemy._healthBarContainer.gameObject.SetActive(_showHitStrings && !enemy._isLaunched);
+                }
+            }
+
             // Vulnerable countdown
             if (_isVulnerable)
             {
@@ -357,11 +397,10 @@ namespace DogAndRobot.Enemies
             // Start repeating flash — set base color to light grey so it pulses grey → white
             var feelSettings = GameFeelManager.Instance?.Settings;
             _flashIntervalRef[0] = feelSettings?.vulnerableFlashInterval ?? 0.3f;
-            SpriteRenderer sr = GetComponent<SpriteRenderer>();
-            if (sr != null)
+            if (_innerBodySr != null)
             {
-                sr.color = new Color(0.75f, 0.75f, 0.75f);
-                _flashCoroutine = GameFeelManager.PulseFlash(sr, _flashIntervalRef, settings?.vulnerableDuration ?? 5f);
+                _innerBodySr.color = new Color(0.75f, 0.75f, 0.75f);
+                _flashCoroutine = GameFeelManager.PulseFlash(_innerBodySr, _flashIntervalRef, settings?.vulnerableDuration ?? 5f);
             }
 
             // Hide regular health segments but keep launch segment visible
@@ -379,10 +418,10 @@ namespace DogAndRobot.Enemies
             TryKnockback(direction);
 
             // Small juice
+            SFXManager.PlayLightHit();
             GameFeelManager.HitStop(0.03f);
-            SpriteRenderer sr = GetComponent<SpriteRenderer>();
-            if (sr != null)
-                GameFeelManager.Flash(sr);
+            if (_innerBodySr != null)
+                GameFeelManager.Flash(_innerBodySr);
             Vector2 dir2d = new Vector2(direction.x, direction.y);
             GameFeelParticles.HitBurst(transform.position, dir2d, Color.white, 3);
 
@@ -404,10 +443,9 @@ namespace DogAndRobot.Enemies
                 _flashCoroutine = null;
             }
 
-            // Restore sprite color
-            SpriteRenderer sr = GetComponent<SpriteRenderer>();
-            if (sr != null)
-                sr.color = Color.white;
+            // Restore inner body color to white for launch
+            if (_innerBodySr != null)
+                _innerBodySr.color = Color.white;
 
             _isVulnerable = false;
 
@@ -429,6 +467,7 @@ namespace DogAndRobot.Enemies
             Vector2 dir2d = new Vector2(direction.x, direction.y);
             int particleCount = Mathf.RoundToInt(Mathf.Lerp(5f, 14f, chargeStrength));
             GameFeelParticles.LaunchChargeBurst(transform.position, dir2d, particleCount);
+            GameFeelParticles.ImpactFlash(transform.position, dir2d, Color.white, 2f);
 
             // Reuse existing launch logic with scaled speed
             StartLaunch(direction, chargeStrength);
@@ -444,11 +483,7 @@ namespace DogAndRobot.Enemies
                 _flashCoroutine = null;
             }
 
-            // Restore sprite color
-            SpriteRenderer sr = GetComponent<SpriteRenderer>();
-            if (sr != null)
-                sr.color = Color.white;
-
+            // Restore inner body color (UpdateBodyColor will set the correct type color)
             _isVulnerable = false;
 
             // Regenerate health segments from original sequence
@@ -492,9 +527,26 @@ namespace DogAndRobot.Enemies
             GameFeelManager.ScreenShake();
         }
 
+        private int DistanceToWall(GridPosition direction)
+        {
+            GridPosition pos = _gridPosition;
+            int dist = 0;
+            while (true)
+            {
+                pos = pos + direction;
+                dist++;
+                if (WallManager.Instance != null && WallManager.Instance.IsWall(pos))
+                    return dist;
+                if (dist > 50) break; // safety cap
+            }
+            return dist;
+        }
+
         private void ExplodeOnWall()
         {
             _isLaunched = false;
+
+            SFXManager.PlayWallExplosion();
 
             OnEnemyDefeated?.Invoke();
 
@@ -513,6 +565,7 @@ namespace DogAndRobot.Enemies
 
             // Wall explosion particles
             GameFeelParticles.WallExplosion(transform.position, _launchDirection);
+            GameFeelParticles.ImpactFlash(transform.position, -_launchDirection, Color.white, 2.5f);
 
             // Death burst
             GameFeelParticles.DeathBurst(transform.position);

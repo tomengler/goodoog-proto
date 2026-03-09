@@ -44,11 +44,19 @@ namespace DogAndRobot.Characters
         public System.Action<Enemy, GridPosition> SprintEnemyHitOverride { get; set; }
 
         /// <summary>
+        /// When true, this character won't play step sounds (used for the follower in joined sprint).
+        /// </summary>
+        public bool SuppressStepSound { get; set; }
+
+        /// <summary>
         /// Set after a successful sprint hit. CharacterLinkManager reads and clears this
         /// to enable the lunge follow-up mechanic.
         /// </summary>
         public Enemy LastSprintHitEnemy { get; set; }
         public GridPosition LastSprintHitDirection { get; set; }
+
+        // Sprint step sound: only play every other cell crossing
+        private int _sprintStepCounter;
 
         // === SPRINT STATE ===
         public MoveState SprintState => _sprintState;
@@ -157,6 +165,7 @@ namespace DogAndRobot.Characters
                 _gridPosition = newPosition;
                 _targetWorldPosition = _gridPosition.ToWorldPosition(CellSize);
                 IsMoving = true;
+                if (!SuppressStepSound) SFXManager.PlayStep();
                 return true;
             }
 
@@ -219,8 +228,11 @@ namespace DogAndRobot.Characters
             _sprintDirection = direction;
             _sprintSpeed = SprintBaseSpeed;
             _sprintElapsed = 0f;
+            _sprintStepCounter = 0;
             _preSprintScale = transform.localScale;
             IsMoving = true;
+
+            SFXManager.PlaySprintStart();
 
             // Burst particles at start
             Vector2 dir2d = new Vector2(direction.x, direction.y);
@@ -350,10 +362,14 @@ namespace DogAndRobot.Characters
                     GameFeelManager.ScreenShake(0.2f, 0.08f);
                     GameFeelManager.HitStop(0.08f);
                     GameFeelParticles.HitBurst(sprintEnemy.transform.position, slamDir, Color.white, 10);
+                    GameFeelParticles.ImpactFlash(sprintEnemy.transform.position, slamDir, Color.white, 1.6f);
                     return;
                 }
 
                 _gridPosition = newGridPos;
+                _sprintStepCounter++;
+                if (!SuppressStepSound && _sprintStepCounter % 2 == 0)
+                    SFXManager.PlayStep();
             }
 
             // Subtle screen shake rumble
@@ -430,10 +446,14 @@ namespace DogAndRobot.Characters
                     GameFeelManager.ScreenShake(0.15f, 0.06f);
                     GameFeelManager.HitStop(0.06f);
                     GameFeelParticles.HitBurst(brakeEnemy.transform.position, slamDir, Color.white, 8);
+                    GameFeelParticles.ImpactFlash(brakeEnemy.transform.position, slamDir, Color.white, 1.6f);
                     return;
                 }
 
                 _gridPosition = newGridPos;
+                _sprintStepCounter++;
+                if (!SuppressStepSound && _sprintStepCounter % 2 == 0)
+                    SFXManager.PlayStep();
             }
 
             // Skid particles

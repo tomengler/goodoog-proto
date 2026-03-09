@@ -725,6 +725,8 @@ namespace DogAndRobot.Core
             _activeSprintDir = direction;
             _joinedSprintInitiator = initiator;
             ClearSprintFollowUp();
+            // Suppress step sounds on follower so we don't get double steps
+            dog.SuppressStepSound = true;
             robot.StartSprint(direction);
             dog.StartSprint(direction);
         }
@@ -746,7 +748,10 @@ namespace DogAndRobot.Core
         {
             // Only care if currently sprinting or braking
             if (robot.SprintState == MoveState.Normal && dog.SprintState == MoveState.Normal)
+            {
+                dog.SuppressStepSound = false;
                 return;
+            }
 
             if (robot.SprintState == MoveState.Sprinting)
             {
@@ -770,6 +775,7 @@ namespace DogAndRobot.Core
                 {
                     robot.StopSprintImmediate();
                     dog.StopSprintImmediate();
+                    dog.SuppressStepSound = false;
                     ResetAllSprintInput();
                 }
             }
@@ -779,10 +785,12 @@ namespace DogAndRobot.Core
             if (robot.SprintState == MoveState.Normal && dog.SprintState != MoveState.Normal)
             {
                 dog.StopSprintImmediate();
+                dog.SuppressStepSound = false;
             }
             else if (dog.SprintState == MoveState.Normal && robot.SprintState != MoveState.Normal)
             {
                 robot.StopSprintImmediate();
+                dog.SuppressStepSound = false;
             }
 
             // Keep follower synced during sprint/brake
@@ -797,6 +805,7 @@ namespace DogAndRobot.Core
             {
                 _activeSprintDir = GridPosition.Zero;
                 ResetAllSprintInput();
+                dog.SuppressStepSound = false;
                 // Re-sync dog grid position to robot
                 dog.TeleportTo(robot.GridPosition);
                 if (_isJoined)
@@ -896,6 +905,8 @@ namespace DogAndRobot.Core
 
             _isJoined = false;
             SetJoinedSprintOverrides(false);
+            robot.SuppressStepSound = false;
+            dog.SuppressStepSound = false;
 
             robot.TryMove(robotDir);
             dog.TryMove(dogDir);

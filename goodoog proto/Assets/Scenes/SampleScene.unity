@@ -247,7 +247,7 @@ SpriteRenderer:
   m_SortingOrder: 0
   m_MaskInteraction: 0
   m_Sprite: {fileID: 7482667652216324306, guid: 311925a002f4447b3a28927169b83ea6, type: 3}
-  m_Color: {r: 0.63207537, g: 0.6555782, b: 1, a: 1}
+  m_Color: {r: 0.631, g: 0.655, b: 1, a: 1}
   m_FlipX: 0
   m_FlipY: 0
   m_DrawMode: 0
@@ -398,7 +398,7 @@ Camera:
   m_Enabled: 1
   serializedVersion: 2
   m_ClearFlags: 2
-  m_BackGroundColor: {r: 0.44654083, g: 0.44654083, b: 0.44654083, a: 1}
+  m_BackGroundColor: {r: 0.40251565, g: 0.40251565, b: 0.40251565, a: 1}
   m_projectionMatrixMode: 1
   m_GateFitMode: 2
   m_FOVAxisMode: 0
@@ -586,7 +586,7 @@ SpriteRenderer:
   m_SortingOrder: 0
   m_MaskInteraction: 0
   m_Sprite: {fileID: 7482667652216324306, guid: 311925a002f4447b3a28927169b83ea6, type: 3}
-  m_Color: {r: 1, g: 0.8323165, b: 0.6313726, a: 1}
+  m_Color: {r: 1, g: 0.831, b: 0.631, a: 1}
   m_FlipX: 0
   m_FlipY: 0
   m_DrawMode: 0
@@ -950,6 +950,46 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 0}
     m_Modifications:
+    - target: {fileID: 2850414015989447614, guid: 51bbd8d904de4144593e17db389c1dac, type: 3}
+      propertyPath: dogBodyColor.b
+      value: 0.631
+      objectReference: {fileID: 0}
+    - target: {fileID: 2850414015989447614, guid: 51bbd8d904de4144593e17db389c1dac, type: 3}
+      propertyPath: dogBodyColor.g
+      value: 0.831
+      objectReference: {fileID: 0}
+    - target: {fileID: 2850414015989447614, guid: 51bbd8d904de4144593e17db389c1dac, type: 3}
+      propertyPath: dogBodyColor.r
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 2850414015989447614, guid: 51bbd8d904de4144593e17db389c1dac, type: 3}
+      propertyPath: dogDamageColor.b
+      value: 0.631
+      objectReference: {fileID: 0}
+    - target: {fileID: 2850414015989447614, guid: 51bbd8d904de4144593e17db389c1dac, type: 3}
+      propertyPath: dogDamageColor.g
+      value: 0.831
+      objectReference: {fileID: 0}
+    - target: {fileID: 2850414015989447614, guid: 51bbd8d904de4144593e17db389c1dac, type: 3}
+      propertyPath: robotBodyColor.b
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 2850414015989447614, guid: 51bbd8d904de4144593e17db389c1dac, type: 3}
+      propertyPath: robotBodyColor.g
+      value: 0.655
+      objectReference: {fileID: 0}
+    - target: {fileID: 2850414015989447614, guid: 51bbd8d904de4144593e17db389c1dac, type: 3}
+      propertyPath: robotBodyColor.r
+      value: 0.631
+      objectReference: {fileID: 0}
+    - target: {fileID: 2850414015989447614, guid: 51bbd8d904de4144593e17db389c1dac, type: 3}
+      propertyPath: robotDamageColor.g
+      value: 0.655
+      objectReference: {fileID: 0}
+    - target: {fileID: 2850414015989447614, guid: 51bbd8d904de4144593e17db389c1dac, type: 3}
+      propertyPath: robotDamageColor.r
+      value: 0.631
+      objectReference: {fileID: 0}
     - target: {fileID: 2860392894706794258, guid: 51bbd8d904de4144593e17db389c1dac, type: 3}
       propertyPath: m_LocalPosition.x
       value: 5

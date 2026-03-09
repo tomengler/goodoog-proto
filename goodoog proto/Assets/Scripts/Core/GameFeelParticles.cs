@@ -267,6 +267,152 @@ namespace DogAndRobot.Core
         }
 
         /// <summary>
+        /// Arcady DBFZ-style impact flash: bright cross starburst + radial ring + speed lines.
+        /// size: 1.0 = normal hit, 1.5 = medium/sprint, 2.0 = heavy/launch, 2.5 = wall explosion.
+        /// </summary>
+        public static void ImpactFlash(Vector3 position, Vector2 direction, Color color, float size = 1f)
+        {
+            if (Instance == null) return;
+            Instance.StartCoroutine(Instance.ImpactFlashRoutine(position, direction, color, size));
+        }
+
+        private System.Collections.IEnumerator ImpactFlashRoutine(Vector3 position, Vector2 direction, Color color, float size)
+        {
+            Sprite sprite = GetSquareSprite();
+            if (sprite == null) yield break;
+
+            float s = size; // shorthand
+
+            // === 1. CROSS STARBURST — two perpendicular bars that scale up and fade ===
+            GameObject crossH = new GameObject("ImpactCrossH");
+            crossH.transform.position = position;
+            SpriteRenderer srH = crossH.AddComponent<SpriteRenderer>();
+            srH.sprite = sprite;
+            srH.color = Color.white;
+            srH.sortingOrder = 20;
+
+            GameObject crossV = new GameObject("ImpactCrossV");
+            crossV.transform.position = position;
+            SpriteRenderer srV = crossV.AddComponent<SpriteRenderer>();
+            srV.sprite = sprite;
+            srV.color = Color.white;
+            srV.sortingOrder = 20;
+
+            // Rotate cross to align with hit direction
+            float hitAngle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg;
+            crossH.transform.rotation = Quaternion.Euler(0, 0, hitAngle);
+            crossV.transform.rotation = Quaternion.Euler(0, 0, hitAngle + 90f);
+
+            // For heavy hits, add diagonal bars for a full starburst
+            GameObject crossD1 = null, crossD2 = null;
+            SpriteRenderer srD1 = null, srD2 = null;
+            if (s >= 1.8f)
+            {
+                crossD1 = new GameObject("ImpactCrossD1");
+                crossD1.transform.position = position;
+                srD1 = crossD1.AddComponent<SpriteRenderer>();
+                srD1.sprite = sprite;
+                srD1.color = Color.white;
+                srD1.sortingOrder = 20;
+                crossD1.transform.rotation = Quaternion.Euler(0, 0, hitAngle + 45f);
+
+                crossD2 = new GameObject("ImpactCrossD2");
+                crossD2.transform.position = position;
+                srD2 = crossD2.AddComponent<SpriteRenderer>();
+                srD2.sprite = sprite;
+                srD2.color = Color.white;
+                srD2.sortingOrder = 20;
+                crossD2.transform.rotation = Quaternion.Euler(0, 0, hitAngle + 135f);
+            }
+
+            // === 2. RADIAL RING — small squares arranged in a circle, expand outward ===
+            int ringCount = Mathf.RoundToInt(8 * s);
+            for (int i = 0; i < ringCount; i++)
+            {
+                float a = (i / (float)ringCount) * Mathf.PI * 2f;
+                GameObject rp = Instantiate(_squareParticlePrefab, position, Quaternion.identity);
+                rp.transform.localScale = Vector3.one * (0.06f * s);
+
+                SpriteRenderer rsr = rp.GetComponent<SpriteRenderer>();
+                if (rsr != null)
+                {
+                    rsr.color = Color.Lerp(Color.white, color, 0.5f);
+                    rsr.sortingOrder = 19;
+                }
+
+                Rigidbody2D rrb = rp.GetComponent<Rigidbody2D>();
+                if (rrb == null) rrb = rp.AddComponent<Rigidbody2D>();
+                rrb.gravityScale = 0f;
+                rrb.linearVelocity = new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * (8f * s);
+                rrb.linearDamping = 6f;
+
+                Destroy(rp, 0.15f + 0.1f * s);
+            }
+
+            // === 3. SPEED LINES — thin stretched particles in the hit direction ===
+            int lineCount = Mathf.RoundToInt(4 * s);
+            for (int i = 0; i < lineCount; i++)
+            {
+                GameObject line = Instantiate(_squareParticlePrefab, position, Quaternion.identity);
+                float lineAngle = Mathf.Atan2(direction.y, direction.x) + Random.Range(-0.3f * s, 0.3f * s);
+                line.transform.rotation = Quaternion.Euler(0, 0, lineAngle * Mathf.Rad2Deg);
+                line.transform.localScale = new Vector3(Random.Range(0.3f, 0.5f) * s, 0.02f * s, 1f);
+
+                SpriteRenderer lsr = line.GetComponent<SpriteRenderer>();
+                if (lsr != null)
+                {
+                    lsr.color = new Color(1f, 1f, 1f, 0.8f);
+                    lsr.sortingOrder = 18;
+                }
+
+                Rigidbody2D lrb = line.GetComponent<Rigidbody2D>();
+                if (lrb == null) lrb = line.AddComponent<Rigidbody2D>();
+                lrb.gravityScale = 0f;
+                lrb.linearVelocity = new Vector2(Mathf.Cos(lineAngle), Mathf.Sin(lineAngle)) * Random.Range(6f, 10f) * s;
+                lrb.linearDamping = 5f;
+
+                Destroy(line, 0.1f + 0.1f * s);
+            }
+
+            // === ANIMATE THE CROSS — scale up fast, then fade out ===
+            float duration = 0.1f + 0.04f * s;
+            float elapsed = 0f;
+            while (elapsed < duration)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float t = elapsed / duration;
+
+                // Scale: quick punch up then settle
+                float scale = t < 0.3f
+                    ? Mathf.Lerp(0f, 1.2f * s, t / 0.3f)
+                    : Mathf.Lerp(1.2f * s, 0.6f * s, (t - 0.3f) / 0.7f);
+
+                float barW = scale * 0.8f;
+                float barH = scale * 0.12f;
+                if (crossH != null) crossH.transform.localScale = new Vector3(barW, barH, 1f);
+                if (crossV != null) crossV.transform.localScale = new Vector3(barW, barH, 1f);
+                // Diagonal bars slightly smaller
+                if (crossD1 != null) crossD1.transform.localScale = new Vector3(barW * 0.7f, barH * 0.8f, 1f);
+                if (crossD2 != null) crossD2.transform.localScale = new Vector3(barW * 0.7f, barH * 0.8f, 1f);
+
+                // Fade: stay bright for first half, then fade
+                float alpha = t < 0.4f ? 1f : Mathf.Lerp(1f, 0f, (t - 0.4f) / 0.6f);
+                Color c = new Color(1f, 1f, 1f, alpha);
+                if (srH != null) srH.color = c;
+                if (srV != null) srV.color = c;
+                if (srD1 != null) srD1.color = c;
+                if (srD2 != null) srD2.color = c;
+
+                yield return null;
+            }
+
+            if (crossH != null) Destroy(crossH);
+            if (crossV != null) Destroy(crossV);
+            if (crossD1 != null) Destroy(crossD1);
+            if (crossD2 != null) Destroy(crossD2);
+        }
+
+        /// <summary>
         /// Particles that get sucked toward a center point during charge-up. Call each frame while charging.
         /// </summary>
         public static void ChargeSuckParticle(Vector3 center)
