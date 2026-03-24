@@ -12,7 +12,9 @@ A new stationary grid entity called "Pole" that characters can grab onto and orb
 - **Grid position**: `GridPosition` field, set from transform in `Awake()`.
 - **Impassable**: Pole tiles block movement for both characters and enemies.
   - `Enemy.TryKnockback()`: Add `Pole.FindAtPosition()` check alongside the existing `WallManager.IsWall()` check so enemies cannot be knocked onto pole tiles.
-  - Character movement: Pole detection is handled explicitly in `TryMove()` (see Section 2), not via `CanMoveTo()`.
+  - Character `TryMove()`: Pole detection is handled explicitly as a higher-priority check before `CanMoveTo()` (see Section 2).
+  - `UpdateSprinting()`: Add `Pole.FindAtPosition()` check at each cell boundary alongside the existing wall check. Head-on pole hit stops sprint and enters `HoldingPole` state. Perpendicular pole detection is a separate check (see Section 4).
+  - `UpdateBraking()`: Add `Pole.FindAtPosition()` check alongside the existing wall check. Braking into a pole stops movement like a wall (no hold state).
 - **No state machine**: Poles are purely passive. All interaction state lives on the character.
 - **Exclusive occupancy**: Enemies and characters cannot occupy a pole tile. Spawning validation prevents initial overlap; knockback/launch checks prevent runtime overlap.
 
@@ -104,7 +106,7 @@ In `GridCharacter.UpdateSprinting()`, at each cell boundary crossing (where we a
 
 ### Head-on sprint into pole
 
-- Pole is impassable, so sprinting directly into a pole behaves like hitting a wall.
+- Detected in `UpdateSprinting()` at cell boundary crossing (via the `Pole.FindAtPosition()` check added in Section 1).
 - Sprint stops. Character enters `HoldingPole` state at the tile before the pole.
 - From there, standard orbit/release inputs apply.
 
@@ -118,7 +120,7 @@ In `GridCharacter.UpdateSprinting()`, at each cell boundary crossing (where we a
 ### Joined orbit
 
 - During 90-degree orbit: the follower moves to the tile the holder just vacated (the holder's previous position).
-- During 180-degree sprint orbit: the follower occupies the same tile as the holder throughout the arc (they remain stacked as in normal joined sprint movement), and ends on the same tile as the holder on the exit side.
+- During 180-degree sprint orbit: the follower occupies the same tile as the holder throughout the arc (they remain stacked as in normal joined sprint movement), and ends on the same tile as the holder on the exit side. On the first cell boundary crossing after the orbit, the follower naturally falls one tile behind as in normal joined sprint (no special transition needed).
 
 ### Separate characters
 
