@@ -435,19 +435,29 @@ namespace DogAndRobot.Characters
             GridPosition newGridPos = GridPosition.FromWorldPosition(transform.position, CellSize);
             if (newGridPos != _gridPosition)
             {
-                // Check wall at the new cell
-                if (!CanMoveTo(newGridPos))
+                // Check wall or pole at the new cell
+                Pole sprintPole = Pole.FindAtPosition(newGridPos);
+                if (!CanMoveTo(newGridPos) || sprintPole != null)
                 {
-                    // Hit a wall — snap back to last valid cell and end sprint
-                    _targetWorldPosition = _gridPosition.ToWorldPosition(CellSize);
-                    transform.position = _targetWorldPosition + _visualOffset;
+                    if (sprintPole != null)
+                    {
+                        // Head-on sprint into pole — stop and enter hold
+                        StopSprintImmediate();
+                        EnterPoleHold(sprintPole, _sprintDirection);
+                    }
+                    else
+                    {
+                        // Hit a wall — snap back to last valid cell and end sprint
+                        _targetWorldPosition = _gridPosition.ToWorldPosition(CellSize);
+                        transform.position = _targetWorldPosition + _visualOffset;
 
-                    Vector2 impactDir = new Vector2(_sprintDirection.x, _sprintDirection.y);
-                    GameFeelParticles.WallExplosion(transform.position + (Vector3)(impactDir * CellSize * 0.5f), impactDir);
+                        Vector2 impactDir = new Vector2(_sprintDirection.x, _sprintDirection.y);
+                        GameFeelParticles.WallExplosion(transform.position + (Vector3)(impactDir * CellSize * 0.5f), impactDir);
 
-                    GameFeelManager.ScreenShake(0.15f, 0.06f);
+                        GameFeelManager.ScreenShake(0.15f, 0.06f);
 
-                    EndSprint();
+                        EndSprint();
+                    }
                     return;
                 }
 
@@ -526,7 +536,7 @@ namespace DogAndRobot.Characters
             GridPosition newGridPos = GridPosition.FromWorldPosition(transform.position, CellSize);
             if (newGridPos != _gridPosition)
             {
-                if (!CanMoveTo(newGridPos))
+                if (!CanMoveTo(newGridPos) || Pole.FindAtPosition(newGridPos) != null)
                 {
                     _targetWorldPosition = _gridPosition.ToWorldPosition(CellSize);
                     transform.position = _targetWorldPosition + _visualOffset;
