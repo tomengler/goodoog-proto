@@ -10,8 +10,11 @@ A new stationary grid entity called "Pole" that characters can grab onto and orb
 
 - **Static registry**: `static List<Pole>`, `Pole.All`, `Pole.FindAtPosition(GridPosition)`. Register in `Awake()`, unregister in `OnDestroy()`.
 - **Grid position**: `GridPosition` field, set from transform in `Awake()`.
-- **Impassable**: Pole tiles block movement. `GridCharacter.CanMoveTo()` checks `Pole.FindAtPosition()` in addition to walls.
+- **Impassable**: Pole tiles block movement for both characters and enemies.
+  - `Enemy.TryKnockback()`: Add `Pole.FindAtPosition()` check alongside the existing `WallManager.IsWall()` check so enemies cannot be knocked onto pole tiles.
+  - Character movement: Pole detection is handled explicitly in `TryMove()` (see Section 2), not via `CanMoveTo()`.
 - **No state machine**: Poles are purely passive. All interaction state lives on the character.
+- **Exclusive occupancy**: Enemies and characters cannot occupy a pole tile. Spawning validation prevents initial overlap; knockback/launch checks prevent runtime overlap.
 
 ### Visuals
 
@@ -33,12 +36,13 @@ A new stationary grid entity called "Pole" that characters can grab onto and orb
 
 ### Entering hold state
 
-- When `TryMove()` detects a `Pole` at the target position, the character does NOT move onto the pole tile. Instead:
+- **Detection ordering in `TryMove()`**: After the existing enemy check and before `CanMoveTo()`, add a pole check using `Pole.FindAtPosition(newPosition)`. If a pole is found, enter hold state and return `true` (movement was "handled"). The character does NOT move onto the pole tile. Instead:
   - Set `MoveState` to `HoldingPole`.
   - Set `HeldPole` to the detected pole.
   - Set `PoleDirection` to the movement direction (toward the pole).
   - Change pole color to character's color.
 - When a sprinting character hits a pole head-on (sprint direction aligns with pole direction), sprint stops and character enters `HoldingPole` state (same as above, no 180-degree swing).
+- When a braking character slides into a pole tile, treat it the same as a wall — stop braking at the tile before the pole. Do NOT enter `HoldingPole` (braking lacks intentional input toward the pole).
 
 ### Exiting hold state
 
@@ -53,8 +57,9 @@ A new stationary grid entity called "Pole" that characters can grab onto and orb
 - **Behavior**: Character moves to the adjacent tile 90 degrees around the pole in the input direction.
   - Example: Character is left of pole (`PoleDirection = Right`). Input Up -> character moves to above the pole, `PoleDirection` updates to `Down`.
 - **Stays in hold**: Character remains in `HoldingPole` state. Multiple orbits can be chained.
-- **Blocked**: If destination tile is occupied (wall, enemy, pole), orbit does not execute.
-- **Animation**: Smooth circular arc around the pole's world position. Arc radius = `cellSize` (1 unit). Angular speed derived from normal `moveSpeed` so perceived movement speed is consistent with grid movement.
+- **Blocked**: If destination tile is occupied (wall, enemy, pole, or the other character when separated), orbit does not execute.
+- **Animation**: Smooth circular arc around the pole's world position, handled by a new `UpdateOrbitAnimation()` method in `GridCharacter` (separate from `UpdateVisualPosition()`). Arc radius = `cellSize` (1 unit). Angular speed derived from normal `moveSpeed` so perceived movement speed is consistent with grid movement.
+- **Input during animation**: Input is blocked until the arc animation completes. The character's `IsMoving` flag remains `true` during the arc.
 
 ### 180-degree sprint orbit
 
@@ -63,7 +68,8 @@ A new stationary grid entity called "Pole" that characters can grab onto and orb
 - **Behavior**: Character swings 180 degrees around the pole and releases, now sprinting in the opposite direction on the other side.
   - Example: Sprinting right, tap up toward pole above -> swing from above-pole through right-of-pole to below-pole -> release sprinting left.
 - **Sprint preserved**: Momentum is maintained; only direction reverses.
-- **Animation**: Smooth circular arc (180 degrees). Angular speed derived from current sprint speed for consistent perceived speed.
+- **Animation**: Smooth circular arc (180 degrees), using `UpdateOrbitAnimation()`. Angular speed derived from current sprint speed for consistent perceived speed.
+- **Input during animation**: Input is blocked until the arc completes. Sprint resumes automatically on completion.
 - **Blocked destination**: If the tile on the opposite side of the pole is occupied, the sprint orbit fails. Character stops sprinting and enters normal `HoldingPole` state instead.
 
 ### Direction mapping for orbits
@@ -94,6 +100,8 @@ In `GridCharacter.UpdateSprinting()`, at each cell boundary crossing (where we a
 2. Check if the character tapped a perpendicular input this frame toward one of those poles.
 3. If yes: initiate 180-degree sprint orbit.
 
+**Input detection mechanism**: Add a `GetPerpendicularTapThisFrame(GridPosition sprintDir)` method to `CharacterInputHandler` that checks `Input.GetKeyDown` for the two perpendicular keys relative to the sprint direction. This is called from `UpdateSprinting()` at each cell boundary, bypassing the normal `GetMovementInput()` path (which is not called during sprint).
+
 ### Head-on sprint into pole
 
 - Pole is impassable, so sprinting directly into a pole behaves like hitting a wall.
@@ -109,8 +117,8 @@ In `GridCharacter.UpdateSprinting()`, at each cell boundary crossing (where we a
 
 ### Joined orbit
 
-- During 90-degree orbit: the follower moves to stay adjacent to the holder's new position.
-- During 180-degree sprint orbit: the follower mirrors the arc movement.
+- During 90-degree orbit: the follower moves to the tile the holder just vacated (the holder's previous position).
+- During 180-degree sprint orbit: the follower occupies the same tile as the holder throughout the arc (they remain stacked as in normal joined sprint movement), and ends on the same tile as the holder on the exit side.
 
 ### Separate characters
 
@@ -119,13 +127,15 @@ In `GridCharacter.UpdateSprinting()`, at each cell boundary crossing (where we a
 
 ## 6. CharacterLinkManager Integration
 
-`CharacterLinkManager` already routes all input. When a character is in `HoldingPole` state, input routing changes:
+`CharacterLinkManager` already routes all input. In both `HandleJoinedInput()` and `HandleSeparateInput()`, before calling `TryMove()`, check if the character's `MoveState` is `HoldingPole`. If so, delegate to a new `HandlePoleInput(character, direction)` method that implements:
 
 - **Away from pole** (opposite `PoleDirection`): Release pole, normal move.
 - **Perpendicular to pole axis**: Execute orbit.
 - **Toward pole**: No-op.
 
-This applies to both joined and separate input handling paths.
+This keeps `CharacterLinkManager` as the single source of truth for input routing, consistent with how sprint/join/separate are handled.
+
+Two characters cannot hold the same pole simultaneously. If a second character attempts to grab an already-held pole, the grab is blocked (treated as impassable wall).
 
 ## 7. Pole Spawning
 
@@ -138,7 +148,7 @@ This applies to both joined and separate input handling paths.
   - Other poles
   - Enemy positions
   - Character start positions
-- Retry with new random positions until 3 valid positions are found.
+- Retry with new random positions until 3 valid positions are found (max 100 attempts; log a warning if exhausted and spawn fewer poles).
 
 ## 8. Collision Summary
 
@@ -146,6 +156,7 @@ This applies to both joined and separate input handling paths.
 |---|---|
 | Character (normal move) | Enter `HoldingPole` state, stay on current tile |
 | Character (sprinting, head-on) | Sprint stops, enter `HoldingPole` state |
+| Character (braking, slides into pole) | Stops at tile before pole (like a wall), does NOT enter hold |
 | Character (sprinting, perpendicular tap) | 180-degree sprint orbit |
 | Enemy (knocked back / launched) | Blocked, acts as wall |
 | Other pole | N/A (poles are stationary) |
