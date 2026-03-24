@@ -78,6 +78,17 @@ namespace DogAndRobot.Characters
         public GridPosition PoleDirection => _poleDirection;
         // Note: use existing SprintState property to check MoveState externally
 
+        // === ORBIT ANIMATION STATE ===
+        bool _isOrbiting;
+        Vector3 _orbitCenter;      // pole world position
+        float _orbitStartAngle;    // radians
+        float _orbitEndAngle;      // radians
+        float _orbitProgress;      // 0 to 1
+        float _orbitDuration;      // seconds
+        GridPosition _orbitTargetGridPos;
+
+        public bool IsOrbiting => _isOrbiting;
+
         // === SETTINGS ACCESS ===
         private float CellSize => SettingsManager.Instance?.settings?.cellSize ?? 1f;
         private float MoveSpeed => SettingsManager.Instance?.settings?.moveSpeed ?? 10f;
@@ -101,6 +112,12 @@ namespace DogAndRobot.Characters
 
         protected virtual void Update()
         {
+            if (_isOrbiting)
+            {
+                UpdateOrbitAnimation();
+                return; // skip normal visual update, sprint update, etc.
+            }
+
             if (_sprintState == MoveState.Sprinting)
             {
                 UpdateSprinting();
@@ -225,6 +242,73 @@ namespace DogAndRobot.Characters
             _targetWorldPosition = _gridPosition.ToWorldPosition(CellSize);
             IsMoving = true;
             _moveProgress = 0f;
+        }
+
+        public void StartOrbit(GridPosition targetGridPos, Pole pole, float speedOverride = -1f)
+        {
+            float cellSize = SettingsManager.Instance.settings.cellSize;
+            _orbitCenter = pole.GridPosition.ToWorldPosition(cellSize);
+
+            Vector3 startWorld = _gridPosition.ToWorldPosition(cellSize);
+            Vector3 endWorld = targetGridPos.ToWorldPosition(cellSize);
+
+            Vector3 startOffset = startWorld - _orbitCenter;
+            Vector3 endOffset = endWorld - _orbitCenter;
+
+            _orbitStartAngle = Mathf.Atan2(startOffset.y, startOffset.x);
+            _orbitEndAngle = Mathf.Atan2(endOffset.y, endOffset.x);
+
+            // Determine shortest arc direction
+            float angleDiff = _orbitEndAngle - _orbitStartAngle;
+            if (angleDiff > Mathf.PI) angleDiff -= 2f * Mathf.PI;
+            if (angleDiff < -Mathf.PI) angleDiff += 2f * Mathf.PI;
+            _orbitEndAngle = _orbitStartAngle + angleDiff;
+
+            // Duration based on arc length and speed
+            float arcLength = Mathf.Abs(angleDiff) * cellSize; // radius = cellSize
+            float speed = speedOverride > 0 ? speedOverride
+                : SettingsManager.Instance.settings.moveSpeed;
+            _orbitDuration = arcLength / speed;
+
+            _orbitTargetGridPos = targetGridPos;
+            _orbitProgress = 0f;
+            _isOrbiting = true;
+            IsMoving = true;
+
+            // Update grid position immediately
+            _gridPosition = targetGridPos;
+
+            // Update pole direction
+            _poleDirection = pole.GridPosition - targetGridPos;
+        }
+
+        void UpdateOrbitAnimation()
+        {
+            if (!_isOrbiting) return;
+
+            float cellSize = SettingsManager.Instance.settings.cellSize;
+            _orbitProgress += Time.deltaTime / _orbitDuration;
+
+            if (_orbitProgress >= 1f)
+            {
+                _orbitProgress = 1f;
+                _isOrbiting = false;
+                IsMoving = false;
+                transform.position = _orbitTargetGridPos.ToWorldPosition(cellSize) + _visualOffset;
+                return;
+            }
+
+            // Smooth interpolation
+            float t = _orbitProgress;
+            float angle = Mathf.Lerp(_orbitStartAngle, _orbitEndAngle, t);
+            float radius = cellSize;
+
+            Vector3 pos = _orbitCenter + new Vector3(
+                Mathf.Cos(angle) * radius,
+                Mathf.Sin(angle) * radius,
+                0f
+            );
+            transform.position = pos + _visualOffset;
         }
 
         protected virtual bool CanMoveTo(GridPosition position)

@@ -373,15 +373,13 @@ namespace DogAndRobot.Core
 
             // Execute orbit
             GridPosition prevPos = character.GridPosition;
-            // TODO: replace with StartOrbit in Task 5
-            character.TeleportTo(newPos);
+            character.StartOrbit(newPos, character.HeldPole);
 
             // Joined follower moves to holder's previous position
             if (_isJoined)
             {
                 GridCharacter follower = (character == robot) ? (GridCharacter)dog : robot;
-                // TODO: replace with follower.AnimateMoveTo(prevPos) in Task 5
-                follower.TeleportTo(prevPos);
+                follower.AnimateMoveTo(prevPos);
             }
 
             return true;
