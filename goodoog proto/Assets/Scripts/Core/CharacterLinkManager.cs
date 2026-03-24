@@ -53,6 +53,10 @@ namespace DogAndRobot.Core
         // Sprint tracking — direction of the active sprint
         private GridPosition _activeSprintDir = GridPosition.Zero;
 
+        // Tracks whether the joined sprint leader was orbiting last frame.
+        // Used to detect when a sprint orbit completes so the follower can re-enter sprint.
+        private bool _leaderWasOrbiting = false;
+
         // Sprint follow-up: after a successful sprint hit, track the enemy for a lunge follow-up
         private Enemy _sprintHitEnemy;
         private GridPosition _sprintHitDirection;
@@ -695,19 +699,49 @@ namespace DogAndRobot.Core
             if (robot.SprintState == MoveState.Normal && dog.SprintState == MoveState.Normal)
             {
                 dog.SuppressStepSound = false;
+                _leaderWasOrbiting = false;
                 return;
             }
 
-            // Check for perpendicular sprint pole grab (leader only)
-            if (robot.SprintState == MoveState.Sprinting)
+            // Resolve leader/follower based on who initiated the sprint
+            GridCharacter sprintLeader = (_joinedMovementLeader == DamageType.Robot) ? (GridCharacter)robot : dog;
+            GridCharacter sprintFollower = (sprintLeader == robot) ? (GridCharacter)dog : robot;
+            CharacterInputHandler leaderInput = (_joinedMovementLeader == DamageType.Robot) ? _robotInput : _dogInput;
+
+            // --- ORBIT GUARD ---
+            // While the leader is doing a sprint orbit, the follower stays stacked and we skip
+            // all normal sprint/brake logic to prevent it from force-stopping the leader.
+            if (sprintLeader.IsOrbiting)
             {
-                CharacterInputHandler leaderInput = (_joinedMovementLeader == DamageType.Robot) ? _robotInput : _dogInput;
-                GridCharacter leader = (_joinedMovementLeader == DamageType.Robot) ? (GridCharacter)robot : dog;
-                if (TrySprintPoleGrab(leader, leaderInput))
+                sprintFollower.transform.position = sprintLeader.transform.position;
+                _leaderWasOrbiting = true;
+                return;
+            }
+
+            // --- POST-ORBIT FOLLOWER RESYNC ---
+            // The frame after orbit completes: leader transitions back to Sprinting,
+            // follower is in Normal (was stopped before orbit). Re-enter follower sprint
+            // and sync their grid position to match the leader's new post-orbit position.
+            if (_leaderWasOrbiting && sprintLeader.SprintState == MoveState.Sprinting
+                && sprintFollower.SprintState == MoveState.Normal)
+            {
+                sprintFollower.TeleportTo(sprintLeader.GridPosition);
+                sprintFollower.StartSprint(sprintLeader.SprintDirection);
+                _activeSprintDir = sprintLeader.SprintDirection;
+                _leaderWasOrbiting = false;
+            }
+            else
+            {
+                _leaderWasOrbiting = false;
+            }
+
+            // Check for perpendicular sprint pole grab (leader only)
+            if (sprintLeader.SprintState == MoveState.Sprinting)
+            {
+                if (TrySprintPoleGrab(sprintLeader, leaderInput))
                 {
-                    // Stop the other character's sprint too
-                    GridCharacter follower = (leader == robot) ? (GridCharacter)dog : robot;
-                    follower.StopSprintImmediate();
+                    // Stop the follower's sprint so they wait while leader orbits
+                    sprintFollower.StopSprintImmediate();
                     dog.SuppressStepSound = false;
                     return;
                 }
@@ -741,7 +775,8 @@ namespace DogAndRobot.Core
             }
 
             // If one character's sprint ended (e.g. hit an enemy) while the other is still going,
-            // force-end the other to keep them in sync
+            // force-end the other to keep them in sync.
+            // Skip this check if the leader is orbiting (handled by the orbit guard above).
             if (robot.SprintState == MoveState.Normal && dog.SprintState != MoveState.Normal)
             {
                 dog.StopSprintImmediate();
