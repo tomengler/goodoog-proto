@@ -63,12 +63,18 @@ namespace DogAndRobot.Characters
         public MoveState SprintState => _sprintState;
         private MoveState _sprintState = MoveState.Normal;
         private GridPosition _sprintDirection;
+        public GridPosition SprintDirection => _sprintDirection;
         private float _sprintSpeed;
         private float _sprintElapsed;
         private Vector3 _brakeStartPos;
         private float _lastSkidTime;
         // Store the scale before sprint started so we can restore it
         private Vector3 _preSprintScale;
+
+        // === SPRINT ORBIT STATE ===
+        bool _isSprintOrbit;
+        GridPosition _postOrbitSprintDirection;
+        float _postOrbitSprintSpeed;
 
         // === POLE HOLD STATE ===
         Pole _heldPole;
@@ -293,8 +299,25 @@ namespace DogAndRobot.Characters
             {
                 _orbitProgress = 1f;
                 _isOrbiting = false;
-                IsMoving = false;
+
                 transform.position = _orbitTargetGridPos.ToWorldPosition(cellSize) + _visualOffset;
+
+                if (_isSprintOrbit)
+                {
+                    _isSprintOrbit = false;
+                    ReleasePole();
+                    _sprintDirection = _postOrbitSprintDirection;
+                    _sprintSpeed = _postOrbitSprintSpeed;
+                    _sprintState = MoveState.Sprinting;
+                    _sprintElapsed = SprintRampDuration; // already at full speed
+                    _preSprintScale = transform.localScale;
+                    IsMoving = false; // sprint manages its own movement
+                    ApplySprintSquashStretch();
+                }
+                else
+                {
+                    IsMoving = false;
+                }
                 return;
             }
 
@@ -347,6 +370,30 @@ namespace DogAndRobot.Characters
         }
 
         // === SPRINT METHODS ===
+
+        /// <summary>
+        /// Grabs a pole perpendicular to the sprint direction and orbits 180 degrees around it,
+        /// resuming sprint in the opposite direction on completion.
+        /// </summary>
+        public void StartSprintOrbit(Pole pole, GridPosition grabDirection, GridPosition exitPos)
+        {
+            float currentSpeed = _sprintSpeed;
+            GridPosition exitSprintDir = new GridPosition(-_sprintDirection.x, -_sprintDirection.y);
+
+            // Stop sprint state temporarily for orbit
+            StopSprintImmediate();
+            _sprintState = MoveState.HoldingPole;
+            _heldPole = pole;
+            pole.SetHolderColor(GetHolderColor());
+
+            // Start 180-degree orbit with sprint speed
+            StartOrbit(exitPos, pole, currentSpeed);
+
+            // Store post-orbit sprint info
+            _postOrbitSprintDirection = exitSprintDir;
+            _postOrbitSprintSpeed = currentSpeed;
+            _isSprintOrbit = true;
+        }
 
         /// <summary>
         /// Start sprinting in the given direction.

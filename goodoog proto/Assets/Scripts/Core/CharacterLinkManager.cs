@@ -617,6 +617,41 @@ namespace DogAndRobot.Core
             return true;
         }
 
+        // === SPRINT POLE GRAB ===
+
+        /// <summary>
+        /// While sprinting, check for a perpendicular tap toward a pole.
+        /// If found, initiate a 180-degree orbit around it (or fall back to hold if blocked).
+        /// </summary>
+        bool TrySprintPoleGrab(GridCharacter character, CharacterInputHandler input)
+        {
+            if (character.SprintState != MoveState.Sprinting) return false;
+
+            GridPosition perpTap = input.GetPerpendicularTapThisFrame(character.SprintDirection);
+            if (perpTap == GridPosition.Zero) return false;
+
+            GridPosition perpPolePos = character.GridPosition + perpTap;
+            Pole perpPole = Pole.FindAtPosition(perpPolePos);
+            if (perpPole == null) return false;
+
+            // Calculate opposite side destination: pole position + grab direction
+            GridPosition exitPos = perpPolePos + perpTap;
+            if (!WallManager.Instance.IsWall(exitPos) &&
+                Enemy.FindAtPosition(exitPos) == null &&
+                Pole.FindAtPosition(exitPos) == null)
+            {
+                character.StartSprintOrbit(perpPole, perpTap, exitPos);
+                return true;
+            }
+            else
+            {
+                // Blocked — fall back to normal hold
+                character.StopSprintImmediate();
+                character.EnterPoleHold(perpPole, perpTap);
+                return true;
+            }
+        }
+
         // === SPRINT MANAGEMENT ===
 
         private bool IsAnySprinting()
@@ -661,6 +696,21 @@ namespace DogAndRobot.Core
             {
                 dog.SuppressStepSound = false;
                 return;
+            }
+
+            // Check for perpendicular sprint pole grab (leader only)
+            if (robot.SprintState == MoveState.Sprinting)
+            {
+                CharacterInputHandler leaderInput = (_joinedMovementLeader == DamageType.Robot) ? _robotInput : _dogInput;
+                GridCharacter leader = (_joinedMovementLeader == DamageType.Robot) ? (GridCharacter)robot : dog;
+                if (TrySprintPoleGrab(leader, leaderInput))
+                {
+                    // Stop the other character's sprint too
+                    GridCharacter follower = (leader == robot) ? (GridCharacter)dog : robot;
+                    follower.StopSprintImmediate();
+                    dog.SuppressStepSound = false;
+                    return;
+                }
             }
 
             if (robot.SprintState == MoveState.Sprinting)
@@ -728,6 +778,9 @@ namespace DogAndRobot.Core
         private void HandleSeparateSprintUpdate(GridCharacter character, CharacterInputHandler input)
         {
             if (character.SprintState == MoveState.Normal) return;
+
+            // Check for perpendicular sprint pole grab
+            if (TrySprintPoleGrab(character, input)) return;
 
             if (character.SprintState == MoveState.Sprinting)
             {

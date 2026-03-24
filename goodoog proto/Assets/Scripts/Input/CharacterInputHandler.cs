@@ -36,43 +36,6 @@ namespace DogAndRobot.Input
         public bool SprintTriggered { get; private set; }
         public GridPosition SprintDirection => _consecutiveTapDir;
 
-        // Charge attack tracking
-        private GridPosition _chargeDirection;
-        private float _chargeHoldTime;
-        private bool _isCharging;
-
-        public bool IsCharging => _isCharging;
-        public GridPosition ChargeDirection => _chargeDirection;
-        public bool ChargeReleased { get; private set; }
-
-        private float ChargeAttackHoldDuration =>
-            SettingsManager.Instance?.settings?.chargeAttackHoldDuration ?? 1.0f;
-
-        private float ChargeBarFillDuration =>
-            SettingsManager.Instance?.settings?.chargeBarFillDuration ?? 2.0f;
-
-        public bool ChargeReady => _isCharging && _chargeHoldTime >= ChargeAttackHoldDuration;
-
-        /// <summary>
-        /// 0-1 progress of the charge bar. Starts filling after ChargeAttackHoldDuration.
-        /// </summary>
-        public float ChargeProgress
-        {
-            get
-            {
-                if (!_isCharging) return 0f;
-                float fillTime = _chargeHoldTime - ChargeAttackHoldDuration;
-                if (fillTime <= 0f) return 0f;
-                return Mathf.Clamp01(fillTime / ChargeBarFillDuration);
-            }
-        }
-
-        /// <summary>
-        /// The charge progress at the moment of release (0 = no charge, 1 = full).
-        /// Valid for one frame after ChargeReleased is true.
-        /// </summary>
-        public float ReleasedChargeProgress { get; private set; }
-
         // Read from central settings with fallback
         private float InputCooldown => SettingsManager.Instance?.settings?.inputCooldown ?? 0.15f;
         private float SprintTapWindow => SettingsManager.Instance?.settings?.sprintTapWindow ?? 0.3f;
@@ -105,20 +68,12 @@ namespace DogAndRobot.Input
                     _waitingForHold = false;
                 }
             }
-
-            // Charge attack tracking — only when a direction key is held
-            UpdateChargeTracking();
         }
 
         private void LateUpdate()
         {
             // Clear one-frame flags
             SprintTriggered = false;
-            if (ChargeReleased)
-            {
-                ChargeReleased = false;
-                ReleasedChargeProgress = 0f;
-            }
         }
 
         public void ConfigureKeys()
@@ -232,42 +187,25 @@ namespace DogAndRobot.Input
             SprintTriggered = false;
         }
 
-        private void UpdateChargeTracking()
+        /// <summary>
+        /// Returns a perpendicular direction tap this frame relative to the given sprint direction.
+        /// Used for sprint pole grab detection.
+        /// </summary>
+        public GridPosition GetPerpendicularTapThisFrame(GridPosition sprintDir)
         {
-            GridPosition heldDir = GetHeldDirection();
-
-            if (heldDir != GridPosition.Zero)
+            if (sprintDir.x != 0)
             {
-                if (_isCharging && heldDir == _chargeDirection)
-                {
-                    // Same direction still held — accumulate time
-                    _chargeHoldTime += Time.deltaTime;
-                }
-                else if (_isCharging && heldDir != _chargeDirection)
-                {
-                    // Different direction pressed — cancel charge
-                    _isCharging = false;
-                    _chargeHoldTime = 0f;
-                }
-                else
-                {
-                    // Starting fresh
-                    _chargeDirection = heldDir;
-                    _chargeHoldTime = 0f;
-                    _isCharging = true;
-                }
+                // Sprinting horizontally — perpendicular is up/down
+                if (UnityEngine.Input.GetKeyDown(_upKey)) return GridPosition.Up;
+                if (UnityEngine.Input.GetKeyDown(_downKey)) return GridPosition.Down;
             }
-            else if (_isCharging)
+            else if (sprintDir.y != 0)
             {
-                // Direction was released
-                if (ChargeReady)
-                {
-                    ReleasedChargeProgress = ChargeProgress;
-                    ChargeReleased = true;
-                }
-                _isCharging = false;
-                _chargeHoldTime = 0f;
+                // Sprinting vertically — perpendicular is left/right
+                if (UnityEngine.Input.GetKeyDown(_leftKey)) return GridPosition.Left;
+                if (UnityEngine.Input.GetKeyDown(_rightKey)) return GridPosition.Right;
             }
+            return GridPosition.Zero;
         }
 
         public bool IsSpecialHeld()
