@@ -11,6 +11,7 @@ using UnityEngine;
 using System.Collections;
 using DogAndRobot.Characters;
 using DogAndRobot.Enemies;
+using DogAndRobot.Environment;
 using DogAndRobot.Input;
 
 namespace DogAndRobot.Core
@@ -65,6 +66,7 @@ namespace DogAndRobot.Core
         // Settings access for new attacks
         private float JointAttackWindow => SettingsManager.Instance?.settings?.jointAttackWindow ?? 0.15f;
 
+
         // Setup flag
         private bool _setupComplete = false;
 
@@ -113,9 +115,6 @@ namespace DogAndRobot.Core
             // Handle sprint state each frame (hold/release detection)
             HandleSprintUpdate();
 
-            // Handle charge attacks (visual feedback + release detection)
-            HandleChargeAttacks();
-
             // We handle all input here instead of in the individual character scripts
             HandleLinkedInput();
 
@@ -157,16 +156,25 @@ namespace DogAndRobot.Core
             {
                 GridPosition inputDir = GridPosition.Zero;
                 GridCharacter attacker = null;
+                GridPosition redirectDir = GridPosition.Zero;
 
                 if (robotDir == _sprintHitDirection && robotDir != GridPosition.Zero)
                 {
                     inputDir = robotDir;
                     attacker = robot;
+                    // Check if dog is holding a perpendicular direction for redirect
+                    GridPosition dogHeld = _dogInput.GetHeldDirection();
+                    if (dogHeld != GridPosition.Zero && ArePerpendicularDirections(_sprintHitDirection, dogHeld))
+                        redirectDir = dogHeld;
                 }
                 else if (dogDir == _sprintHitDirection && dogDir != GridPosition.Zero)
                 {
                     inputDir = dogDir;
                     attacker = dog;
+                    // Check if robot is holding a perpendicular direction for redirect
+                    GridPosition robotHeld = _robotInput.GetHeldDirection();
+                    if (robotHeld != GridPosition.Zero && ArePerpendicularDirections(_sprintHitDirection, robotHeld))
+                        redirectDir = robotHeld;
                 }
 
                 // Any input in a different direction clears the follow-up
@@ -188,11 +196,12 @@ namespace DogAndRobot.Core
                 DamageType damageType = attacker.GetDamageType();
                 Enemy enemy = _sprintHitEnemy;
                 GridPosition dir = _sprintHitDirection;
+                GridPosition? knockbackOverride = redirectDir != GridPosition.Zero ? redirectDir : (GridPosition?)null;
 
                 if (enemy.IsVulnerable)
                 {
                     // Hit first so enemy moves, then lunge to its new position
-                    enemy.TryPush(dir);
+                    enemy.TryPush(dir, knockbackOverride);
                     LungeToEnemy(attacker, enemy, dir);
                     ClearSprintFollowUp();
                     return true;
@@ -202,7 +211,7 @@ namespace DogAndRobot.Core
                 if (enemy.PeekNextDamageType() == damageType)
                 {
                     // Hit first so enemy moves, then lunge to its new position
-                    enemy.TryTakeHit(damageType, dir, attacker.transform);
+                    enemy.TryTakeHit(damageType, dir, attacker.transform, knockbackOverride: knockbackOverride);
                     LungeToEnemy(attacker, enemy, dir);
                     ClearSprintFollowUp();
                     return true;
@@ -298,10 +307,102 @@ namespace DogAndRobot.Core
             dog.LastSprintHitEnemy = null;
         }
 
+        // === POLE INPUT ===
+
+        /// <summary>
+        /// Returns true if the given pole is currently held by the other character.
+        /// Used to block both characters from grabbing the same pole.
+        /// </summary>
+        private bool IsPoleHeldByOther(GridCharacter character, Pole pole)
+        {
+            GridCharacter other = (character == robot) ? (GridCharacter)dog : robot;
+            return other.HeldPole == pole;
+        }
+
+        /// <summary>
+        /// Wraps TryMove with a same-pole double-grab guard.
+        /// If the destination holds a pole already held by the other character, the move is blocked.
+        /// </summary>
+        private bool TryMoveWithPoleCheck(GridCharacter character, GridPosition direction, GridPosition? knockbackOverride = null)
+        {
+            GridPosition dest = character.GridPosition + direction;
+            Pole poleAtDest = Pole.FindAtPosition(dest);
+            if (poleAtDest != null && IsPoleHeldByOther(character, poleAtDest))
+                return false; // blocked — other character already holds this pole
+
+            return character.TryMove(direction, knockbackOverride);
+        }
+
+        /// <summary>
+        /// Routes directional input for a character that is currently holding a pole.
+        /// Away = release + move; Toward = no-op; Perpendicular = orbit around pole.
+        /// Always returns true (input is consumed).
+        /// </summary>
+        private bool HandlePoleInput(GridCharacter character, GridPosition direction)
+        {
+            GridPosition poleDir = character.PoleDirection;
+
+            // Away from pole — release and move normally
+            if (direction.x == -poleDir.x && direction.y == -poleDir.y)
+            {
+                character.ReleasePole();
+                character.TryMove(direction);
+                return true;
+            }
+
+            // Toward pole — no-op (already at the pole edge, can't move into it)
+            if (direction.Equals(poleDir))
+                return true;
+
+            // Perpendicular — orbit around the pole
+            GridPosition newPos = character.HeldPole.GridPosition + direction;
+
+            // Check blocked (wall, enemy, pole, or other character when separated)
+            if (WallManager.Instance.IsWall(newPos) ||
+                Enemy.FindAtPosition(newPos) != null ||
+                Pole.FindAtPosition(newPos) != null)
+                return true; // blocked, consume input
+
+            if (!_isJoined)
+            {
+                // When separated, also block if other character is at destination
+                GridCharacter other = (character == robot) ? (GridCharacter)dog : robot;
+                if (other.GridPosition.Equals(newPos))
+                    return true;
+            }
+
+            // Execute orbit
+            GridPosition prevPos = character.GridPosition;
+            // TODO: replace with StartOrbit in Task 5
+            character.TeleportTo(newPos);
+
+            // Joined follower moves to holder's previous position
+            if (_isJoined)
+            {
+                GridCharacter follower = (character == robot) ? (GridCharacter)dog : robot;
+                // TODO: replace with follower.AnimateMoveTo(prevPos) in Task 5
+                follower.TeleportTo(prevPos);
+            }
+
+            return true;
+        }
+
         // === JOINED / SEPARATE INPUT ===
 
         private void HandleJoinedInput(GridPosition robotDir, GridPosition dogDir)
         {
+            // Check if either character is holding a pole — route to pole input handler
+            if (robot.SprintState == MoveState.HoldingPole && robotDir != GridPosition.Zero)
+            {
+                HandlePoleInput(robot, robotDir);
+                return;
+            }
+            if (dog.SprintState == MoveState.HoldingPole && dogDir != GridPosition.Zero)
+            {
+                HandlePoleInput(dog, dogDir);
+                return;
+            }
+
             // Record inputs with timestamps
             if (robotDir != GridPosition.Zero)
             {
@@ -391,25 +492,35 @@ namespace DogAndRobot.Core
                     _hasPendingMovement = true;
                 }
 
-                // Store who's leading
                 _joinedMovementLeader = leader;
 
-                // Only the leader actually "moves" (and can deal damage)
-                // The other character just follows
-                if (leader == DamageType.Robot)
+                // Check if the other character is holding a perpendicular direction
+                // for knockback redirect (hold direction + tap attack = redirect)
+                CharacterInputHandler otherInput = leader == DamageType.Robot ? _dogInput : _robotInput;
+                GridPosition otherHeld = otherInput.GetHeldDirection();
+                GridPosition? knockbackOverride = null;
+
+                if (otherHeld != GridPosition.Zero && ArePerpendicularDirections(moveDirection, otherHeld))
                 {
-                    robot.TryMove(moveDirection);
-                    dog.AnimateMoveTo(robot.GridPosition);
-                }
-                else
-                {
-                    dog.TryMove(moveDirection);
-                    robot.AnimateMoveTo(dog.GridPosition);
+                    knockbackOverride = otherHeld;
+                    Debug.Log($"[PerpPush] Redirect! attack={moveDirection}, knockback={otherHeld}");
                 }
 
-                // Update offsets without snapping positions
-                UpdateJoinedOffsets();
+                ProcessJoinedAttack(moveDirection, leader, knockbackOverride);
             }
+        }
+
+        /// <summary>
+        /// Processes a joined move/attack, optionally with a perpendicular knockback redirect.
+        /// </summary>
+        private void ProcessJoinedAttack(GridPosition dir, DamageType leader, GridPosition? knockbackOverride)
+        {
+            GridCharacter attacker = leader == DamageType.Robot ? (GridCharacter)robot : dog;
+            GridCharacter follower = leader == DamageType.Robot ? (GridCharacter)dog : robot;
+
+            TryMoveWithPoleCheck(attacker, dir, knockbackOverride);
+            follower.AnimateMoveTo(attacker.GridPosition);
+            UpdateJoinedOffsets();
         }
 
         private void HandleSeparateInput(GridPosition robotDir, GridPosition dogDir)
@@ -444,218 +555,16 @@ namespace DogAndRobot.Core
             }
 
             // Normal movement for non-sprinting characters
-            if (robotDir != GridPosition.Zero && robot.SprintState == MoveState.Normal)
-            {
-                robot.TryMove(robotDir);
-            }
+            // Check for pole input first, then fall through to normal movement
+            if (robot.SprintState == MoveState.HoldingPole && robotDir != GridPosition.Zero)
+                HandlePoleInput(robot, robotDir);
+            else if (robotDir != GridPosition.Zero && robot.SprintState == MoveState.Normal)
+                TryMoveWithPoleCheck(robot, robotDir);
 
-            if (dogDir != GridPosition.Zero && dog.SprintState == MoveState.Normal)
-            {
-                dog.TryMove(dogDir);
-            }
-        }
-
-        // === CHARGE & JOINT ATTACKS ===
-
-        private void HandleChargeAttacks()
-        {
-            // Don't process charge during sprint
-            if (IsAnySprinting()) return;
-
-            // Visual effects while charging
-            var feelSettings = GameFeelManager.Instance?.Settings;
-            float shakeIntensity = feelSettings?.chargeShakeIntensity ?? 0.02f;
-
-            UpdateChargeVisuals(_robotInput, robot, shakeIntensity);
-            UpdateChargeVisuals(_dogInput, dog, shakeIntensity);
-
-            // Check for charge release
-            HandleChargeRelease(_robotInput, robot);
-            HandleChargeRelease(_dogInput, dog);
-        }
-
-        // Charge visual state tracking
-        private float _robotChargeParticleTimer;
-        private float _dogChargeParticleTimer;
-        private SpriteRenderer _robotSr;
-        private SpriteRenderer _dogSr;
-        private Color _robotOriginalColor;
-        private Color _dogOriginalColor;
-        private bool _robotWasCharging;
-        private bool _dogWasCharging;
-
-        // Charge bar UI
-        private GameObject _robotChargeBar;
-        private GameObject _robotChargeBarFill;
-        private SpriteRenderer _robotChargeBarBg;
-        private SpriteRenderer _robotChargeBarFg;
-        private GameObject _dogChargeBar;
-        private GameObject _dogChargeBarFill;
-        private SpriteRenderer _dogChargeBarBg;
-        private SpriteRenderer _dogChargeBarFg;
-
-        private float ChargeBarFillDuration => SettingsManager.Instance?.settings?.chargeBarFillDuration ?? 2f;
-
-        private void UpdateChargeVisuals(CharacterInputHandler input, GridCharacter character, float shakeIntensity)
-        {
-            bool isCharging = input.IsCharging;
-            bool isRobot = (character == robot);
-            ref float particleTimer = ref (isRobot ? ref _robotChargeParticleTimer : ref _dogChargeParticleTimer);
-            ref bool wasCharging = ref (isRobot ? ref _robotWasCharging : ref _dogWasCharging);
-
-            // Get/cache sprite renderer
-            SpriteRenderer sr = isRobot ? _robotSr : _dogSr;
-            if (sr == null)
-            {
-                sr = character.GetComponent<SpriteRenderer>();
-                if (isRobot) { _robotSr = sr; _robotOriginalColor = sr != null ? sr.color : Color.white; }
-                else { _dogSr = sr; _dogOriginalColor = sr != null ? sr.color : Color.white; }
-            }
-            Color originalColor = isRobot ? _robotOriginalColor : _dogOriginalColor;
-
-            if (isCharging)
-            {
-                float chargeProgress = input.ChargeProgress;
-
-                // Shake intensifies with charge
-                GameFeelManager.ObjectShake(character.transform, Vector2.one, Time.deltaTime,
-                    shakeIntensity * (0.5f + chargeProgress * 1.5f));
-
-                // White pulse effect — oscillate between original color and white
-                if (sr != null)
-                {
-                    float pulse = Mathf.Sin(Time.time * (8f + chargeProgress * 12f)) * 0.5f + 0.5f;
-                    sr.color = Color.Lerp(originalColor, Color.white, pulse * chargeProgress);
-                }
-
-                // Particles sucked toward character center
-                particleTimer += Time.deltaTime;
-                float spawnInterval = Mathf.Lerp(0.15f, 0.04f, chargeProgress);
-                if (particleTimer >= spawnInterval)
-                {
-                    particleTimer = 0f;
-                    GameFeelParticles.ChargeSuckParticle(character.transform.position);
-                }
-
-                // Show/update charge bar
-                EnsureChargeBar(isRobot, character);
-                UpdateChargeBar(isRobot, character, chargeProgress);
-
-                wasCharging = true;
-            }
-            else if (wasCharging)
-            {
-                // Restore original color
-                if (sr != null) sr.color = originalColor;
-                particleTimer = 0f;
-                wasCharging = false;
-
-                // Hide charge bar
-                HideChargeBar(isRobot);
-            }
-        }
-
-        private void EnsureChargeBar(bool isRobot, GridCharacter character)
-        {
-            ref GameObject bar = ref (isRobot ? ref _robotChargeBar : ref _dogChargeBar);
-            ref GameObject fill = ref (isRobot ? ref _robotChargeBarFill : ref _dogChargeBarFill);
-            ref SpriteRenderer bgSr = ref (isRobot ? ref _robotChargeBarBg : ref _dogChargeBarBg);
-            ref SpriteRenderer fgSr = ref (isRobot ? ref _robotChargeBarFg : ref _dogChargeBarFg);
-
-            if (bar != null) return;
-
-            // Create bar container
-            bar = new GameObject(isRobot ? "RobotChargeBar" : "DogChargeBar");
-            bar.transform.SetParent(character.transform);
-            bar.transform.localPosition = new Vector3(0f, 0.7f, 0f);
-            bar.transform.localScale = Vector3.one;
-
-            // Background (dark grey)
-            GameObject bg = new GameObject("ChargeBg");
-            bg.transform.SetParent(bar.transform);
-            bg.transform.localPosition = Vector3.zero;
-            bg.transform.localScale = new Vector3(0.6f, 0.08f, 1f);
-            bgSr = bg.AddComponent<SpriteRenderer>();
-            bgSr.color = new Color(0.2f, 0.2f, 0.2f, 0.9f);
-            bgSr.sortingOrder = 10;
-            // Use the square particle sprite if available
-            if (GameFeelParticles.Instance != null)
-            {
-                var particlePrefabSr = GameFeelParticles.Instance.GetSquareSprite();
-                if (particlePrefabSr != null) bgSr.sprite = particlePrefabSr;
-            }
-
-            // Fill (white)
-            fill = new GameObject("ChargeFill");
-            fill.transform.SetParent(bar.transform);
-            fill.transform.localPosition = new Vector3(-0.3f, 0f, 0f);
-            fill.transform.localScale = new Vector3(0f, 0.06f, 1f);
-            fgSr = fill.AddComponent<SpriteRenderer>();
-            fgSr.color = Color.white;
-            fgSr.sortingOrder = 11;
-            if (GameFeelParticles.Instance != null)
-            {
-                var particlePrefabSr = GameFeelParticles.Instance.GetSquareSprite();
-                if (particlePrefabSr != null) fgSr.sprite = particlePrefabSr;
-            }
-        }
-
-        private void UpdateChargeBar(bool isRobot, GridCharacter character, float progress)
-        {
-            GameObject fill = isRobot ? _robotChargeBarFill : _dogChargeBarFill;
-            GameObject bar = isRobot ? _robotChargeBar : _dogChargeBar;
-            if (fill == null || bar == null) return;
-
-            bar.SetActive(true);
-
-            // Scale the fill bar width based on progress
-            float maxWidth = 0.6f;
-            float fillWidth = maxWidth * progress;
-            fill.transform.localScale = new Vector3(fillWidth, 0.06f, 1f);
-            // Anchor fill to left side of bar
-            fill.transform.localPosition = new Vector3(-maxWidth / 2f + fillWidth / 2f, 0f, 0f);
-        }
-
-        private void HideChargeBar(bool isRobot)
-        {
-            GameObject bar = isRobot ? _robotChargeBar : _dogChargeBar;
-            if (bar != null) bar.SetActive(false);
-        }
-
-        private void HandleChargeRelease(CharacterInputHandler input, GridCharacter character)
-        {
-            if (!input.ChargeReleased) return;
-
-            float chargeAmount = input.ReleasedChargeProgress;
-            GridPosition dir = input.ChargeDirection;
-            GridPosition targetPos = character.GridPosition + dir;
-            Enemy enemy = character.FindVulnerableEnemyAt(targetPos);
-
-            if (enemy != null)
-            {
-                if (chargeAmount <= 0f)
-                {
-                    // 0% charge = regular push (no launch)
-                    enemy.TryPush(dir);
-                    SFXManager.PlayMediumHit();
-                }
-                else
-                {
-                    // Launch with strength based on charge amount (TryLaunch plays HeavyHit)
-                    enemy.TryLaunch(dir, chargeAmount);
-                }
-
-                // Squash the attacker (stronger with more charge)
-                Vector2 dir2d = new Vector2(dir.x, dir.y);
-                GameFeelManager.Squash(character.transform, dir2d);
-
-                // Scale effects with charge
-                if (chargeAmount > 0f)
-                {
-                    GameFeelManager.ScreenShake(0.1f + chargeAmount * 0.1f, 0.04f + chargeAmount * 0.06f);
-                    GameFeelManager.ChromaticPulse(0.3f + chargeAmount * 0.5f, 0.1f);
-                }
-            }
+            if (dog.SprintState == MoveState.HoldingPole && dogDir != GridPosition.Zero)
+                HandlePoleInput(dog, dogDir);
+            else if (dogDir != GridPosition.Zero && dog.SprintState == MoveState.Normal)
+                TryMoveWithPoleCheck(dog, dogDir);
         }
 
         /// <summary>
@@ -714,7 +623,10 @@ namespace DogAndRobot.Core
 
         private bool IsAnySprinting()
         {
-            return robot.SprintState != MoveState.Normal || dog.SprintState != MoveState.Normal;
+            // HoldingPole is not a sprint state — pole input is handled separately
+            bool robotActive = robot.SprintState == MoveState.Sprinting || robot.SprintState == MoveState.Braking;
+            bool dogActive = dog.SprintState == MoveState.Sprinting || dog.SprintState == MoveState.Braking;
+            return robotActive || dogActive;
         }
 
         // Track who initiated the joined sprint for damage type matching
@@ -861,6 +773,15 @@ namespace DogAndRobot.Core
 
             GridPosition sum = dir1 + dir2;
             return sum == GridPosition.Zero;
+        }
+
+        private bool ArePerpendicularDirections(GridPosition dir1, GridPosition dir2)
+        {
+            if (dir1 == GridPosition.Zero || dir2 == GridPosition.Zero)
+                return false;
+
+            // Dot product of cardinal unit vectors: 0 means perpendicular
+            return dir1.x * dir2.x + dir1.y * dir2.y == 0;
         }
 
         private void SetJoinedSprintOverrides(bool joined)
