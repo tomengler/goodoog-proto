@@ -6,10 +6,11 @@
 using UnityEngine;
 using DogAndRobot.Core;
 using DogAndRobot.Enemies;
+using DogAndRobot.Environment;
 
 namespace DogAndRobot.Characters
 {
-    public enum MoveState { Normal, Sprinting, Braking }
+    public enum MoveState { Normal, Sprinting, Braking, HoldingPole }
 
     public class GridCharacter : MonoBehaviour
     {
@@ -69,6 +70,14 @@ namespace DogAndRobot.Characters
         // Store the scale before sprint started so we can restore it
         private Vector3 _preSprintScale;
 
+        // === POLE HOLD STATE ===
+        Pole _heldPole;
+        GridPosition _poleDirection; // direction from character TO pole
+
+        public Pole HeldPole => _heldPole;
+        public GridPosition PoleDirection => _poleDirection;
+        // Note: use existing SprintState property to check MoveState externally
+
         // === SETTINGS ACCESS ===
         private float CellSize => SettingsManager.Instance?.settings?.cellSize ?? 1f;
         private float MoveSpeed => SettingsManager.Instance?.settings?.moveSpeed ?? 10f;
@@ -112,7 +121,7 @@ namespace DogAndRobot.Characters
         /// Attempts to move the character one grid cell in the given direction.
         /// Returns true if the move was successful, false if blocked.
         /// </summary>
-        public bool TryMove(GridPosition direction)
+        public bool TryMove(GridPosition direction, GridPosition? knockbackOverride = null)
         {
             // Calculate where we'd end up
             GridPosition newPosition = _gridPosition + direction;
@@ -126,7 +135,7 @@ namespace DogAndRobot.Characters
                 // If enemy is vulnerable, push it instead of attacking
                 if (enemy.IsVulnerable)
                 {
-                    if (enemy.TryPush(direction))
+                    if (enemy.TryPush(direction, knockbackOverride))
                     {
                         // Only move into the space if the enemy actually moved out
                         if (enemy.GridPosition != enemyPosBefore)
@@ -142,7 +151,7 @@ namespace DogAndRobot.Characters
 
                 // Try to attack the enemy
                 DamageType damageType = GetDamageType();
-                bool hit = enemy.TryTakeHit(damageType, direction, transform);
+                bool hit = enemy.TryTakeHit(damageType, direction, transform, knockbackOverride: knockbackOverride);
 
                 if (hit)
                 {
@@ -157,6 +166,14 @@ namespace DogAndRobot.Characters
                 }
 
                 return false;
+            }
+
+            // Check if there's a pole at the target position
+            Pole pole = Pole.FindAtPosition(newPosition);
+            if (pole != null)
+            {
+                EnterPoleHold(pole, direction);
+                return true;
             }
 
             // Check if the move is valid
@@ -215,6 +232,34 @@ namespace DogAndRobot.Characters
             if (WallManager.Instance != null && WallManager.Instance.IsWall(position))
                 return false;
             return true;
+        }
+
+        // === POLE HOLD METHODS ===
+
+        public void EnterPoleHold(Pole pole, GridPosition directionToPole)
+        {
+            _sprintState = MoveState.HoldingPole;
+            _heldPole = pole;
+            _poleDirection = directionToPole;
+            pole.SetHolderColor(GetHolderColor());
+        }
+
+        public void ReleasePole()
+        {
+            if (_heldPole != null)
+            {
+                _heldPole.ResetColor();
+                _heldPole = null;
+            }
+            _poleDirection = GridPosition.Zero;
+            _sprintState = MoveState.Normal;
+        }
+
+        Color GetHolderColor()
+        {
+            return GetDamageType() == DamageType.Dog
+                ? new Color(1f, 0.831f, 0.631f, 1f)    // #FFD4A1
+                : new Color(0.631f, 0.655f, 1f, 1f);    // #A1A7FF
         }
 
         // === SPRINT METHODS ===

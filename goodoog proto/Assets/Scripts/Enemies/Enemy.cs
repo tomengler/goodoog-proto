@@ -6,6 +6,7 @@ using UnityEngine;
 using System.Collections.Generic;
 using DogAndRobot.Core;
 using DogAndRobot.Characters;
+using DogAndRobot.Environment;
 
 namespace DogAndRobot.Enemies
 {
@@ -213,7 +214,7 @@ namespace DogAndRobot.Enemies
         /// Called when a character tries to attack this enemy.
         /// Returns true if the attack was successful (correct damage type).
         /// </summary>
-        public bool TryTakeHit(DamageType damageType, GridPosition attackDirection, Transform attacker = null, bool suppressAudio = false)
+        public bool TryTakeHit(DamageType damageType, GridPosition attackDirection, Transform attacker = null, bool suppressAudio = false, GridPosition? knockbackOverride = null)
         {
             if (_damageSequence.Count == 0)
                 return false;
@@ -238,8 +239,10 @@ namespace DogAndRobot.Enemies
             // Update body color to reflect new required damage type
             UpdateBodyColor();
 
-            // Juice: direction as Vector2 for effects
+            // Juice: attacker squash uses attack direction, enemy effects use knockback direction
             Vector2 attackDir = new Vector2(attackDirection.x, attackDirection.y);
+            GridPosition effectiveKnockback = knockbackOverride ?? attackDirection;
+            Vector2 knockDir = new Vector2(effectiveKnockback.x, effectiveKnockback.y);
 
             // Juice: hitstop
             GameFeelManager.HitStop();
@@ -249,7 +252,7 @@ namespace DogAndRobot.Enemies
                 GameFeelManager.Squash(attacker, attackDir);
 
             // Juice: enemy stretch in knockback direction
-            GameFeelManager.Stretch(transform, attackDir);
+            GameFeelManager.Stretch(transform, knockDir);
 
             // Juice: flash white (inner body)
             if (_innerBodySr != null)
@@ -260,10 +263,10 @@ namespace DogAndRobot.Enemies
 
             // Layer C: hit particles
             Color particleColor = damageType == DamageType.Dog ? dogDamageColor : robotDamageColor;
-            GameFeelParticles.HitBurst(transform.position, attackDir, particleColor);
+            GameFeelParticles.HitBurst(transform.position, knockDir, particleColor);
 
             // Arcady impact flash (DBFZ-style cross + ring + speed lines)
-            GameFeelParticles.ImpactFlash(transform.position, attackDir, particleColor, 1.3f);
+            GameFeelParticles.ImpactFlash(transform.position, knockDir, particleColor, 1.3f);
 
             // Layer C: chromatic aberration
             GameFeelManager.ChromaticPulse(0.3f, 0.08f);
@@ -275,8 +278,16 @@ namespace DogAndRobot.Enemies
                 _healthSegments.RemoveAt(0);
             }
 
-            // Try to knock back
-            TryKnockback(attackDirection);
+            // Try to knock back — if override is blocked by wall, fall back to attack direction
+            if (knockbackOverride.HasValue)
+            {
+                if (!TryKnockback(knockbackOverride.Value))
+                    TryKnockback(attackDirection);
+            }
+            else
+            {
+                TryKnockback(attackDirection);
+            }
 
             // Check if sequence depleted — enter vulnerable instead of immediate launch
             if (_damageSequence.Count == 0)
@@ -290,16 +301,17 @@ namespace DogAndRobot.Enemies
         /// <summary>
         /// Attempts to knock the enemy back one grid space.
         /// </summary>
-        protected virtual void TryKnockback(GridPosition direction)
+        protected virtual bool TryKnockback(GridPosition direction)
         {
             GridPosition newPosition = _gridPosition + direction;
 
-            // Block knockback into walls
-            if (WallManager.Instance != null && WallManager.Instance.IsWall(newPosition))
-                return;
+            // Block knockback into walls or poles
+            if ((WallManager.Instance != null && WallManager.Instance.IsWall(newPosition)) || Pole.FindAtPosition(newPosition) != null)
+                return false;
 
             _gridPosition = newPosition;
             transform.position = _gridPosition.ToWorldPosition(CellSize);
+            return true;
         }
         
         /// <summary>
@@ -411,18 +423,28 @@ namespace DogAndRobot.Enemies
         /// <summary>
         /// Push the vulnerable enemy one tile. Any character can push, no damage type check.
         /// </summary>
-        public bool TryPush(GridPosition direction)
+        public bool TryPush(GridPosition direction, GridPosition? knockbackOverride = null)
         {
             if (!_isVulnerable) return false;
 
-            TryKnockback(direction);
+            // Try override direction first, fall back to normal if blocked
+            if (knockbackOverride.HasValue)
+            {
+                if (!TryKnockback(knockbackOverride.Value))
+                    TryKnockback(direction);
+            }
+            else
+            {
+                TryKnockback(direction);
+            }
 
-            // Small juice
+            // Small juice — use actual knockback direction for effects
+            GridPosition effectiveDir = knockbackOverride ?? direction;
             SFXManager.PlayLightHit();
             GameFeelManager.HitStop(0.03f);
             if (_innerBodySr != null)
                 GameFeelManager.Flash(_innerBodySr);
-            Vector2 dir2d = new Vector2(direction.x, direction.y);
+            Vector2 dir2d = new Vector2(effectiveDir.x, effectiveDir.y);
             GameFeelParticles.HitBurst(transform.position, dir2d, Color.white, 3);
 
             return true;
