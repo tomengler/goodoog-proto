@@ -382,7 +382,7 @@ namespace DogAndRobot.Enemies
 
             // Check if current position overlaps a wall
             GridPosition currentGrid = GridPosition.FromWorldPosition(transform.position, CellSize);
-            if (WallManager.Instance != null && WallManager.Instance.IsWall(currentGrid))
+            if ((WallManager.Instance != null && WallManager.Instance.IsWall(currentGrid)) || Pole.FindAtPosition(currentGrid) != null)
             {
                 ExplodeOnWall();
             }

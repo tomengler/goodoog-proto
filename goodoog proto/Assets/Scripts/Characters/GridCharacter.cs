@@ -273,7 +273,7 @@ namespace DogAndRobot.Characters
             // Duration based on arc length and speed
             float arcLength = Mathf.Abs(angleDiff) * cellSize; // radius = cellSize
             float speed = speedOverride > 0 ? speedOverride
-                : SettingsManager.Instance.settings.moveSpeed;
+                : SprintBaseSpeed; // cellSize * moveSpeed = world units/sec
             _orbitDuration = arcLength / speed;
 
             _orbitTargetGridPos = targetGridPos;

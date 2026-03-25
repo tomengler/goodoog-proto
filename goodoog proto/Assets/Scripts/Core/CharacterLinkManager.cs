@@ -128,8 +128,9 @@ namespace DogAndRobot.Core
 
         private void HandleLinkedInput()
         {
-            // Don't process tap input while sprinting or braking
+            // Don't process tap input while sprinting, braking, or orbiting
             if (IsAnySprinting()) return;
+            if (robot.IsOrbiting || dog.IsOrbiting) return;
 
             // Get input from both handlers
             GridPosition robotDirection = _robotInput.GetMovementInput();
@@ -791,8 +792,8 @@ namespace DogAndRobot.Core
             // Keep follower synced during sprint/brake
             if (robot.SprintState != MoveState.Normal || dog.SprintState != MoveState.Normal)
             {
-                // Sync dog position to robot during joined sprint
-                dog.transform.position = robot.transform.position;
+                // Sync follower position to leader during joined sprint
+                sprintFollower.transform.position = sprintLeader.transform.position;
             }
 
             // When both finish, clean up
