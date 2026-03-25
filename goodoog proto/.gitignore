@@ -18,6 +18,9 @@
 # Visual Studio cache directory
 .vs/
 
+# Recovery scenes
+Assets/_Recovery/
+
 # OS generated
 .DS_Store
 .DS_Store?

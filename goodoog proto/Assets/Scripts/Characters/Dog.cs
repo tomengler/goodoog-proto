@@ -42,6 +42,14 @@ namespace DogAndRobot.Characters
 
             // Process input
             HandleInput();
+
+            // Press P to turn the dog red
+            if (UnityEngine.Input.GetKeyDown(KeyCode.P))
+            {
+                var sr = GetComponent<SpriteRenderer>();
+                if (sr != null)
+                    sr.color = Color.red;
+            }
         }
 
         private void HandleInput()

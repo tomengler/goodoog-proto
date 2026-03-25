@@ -14,7 +14,7 @@ namespace DogAndRobot.Core
     {
         [Header("Settings")]
         [Tooltip("When enabled, controls swap based on character positions. When disabled, Robot always uses WASD, Dog always uses IJKL.")]
-        public bool enableDynamicSwap = true;
+        public bool enableDynamicSwap = false;
 
         [Header("Character References")]
         public Robot robot;
@@ -26,6 +26,12 @@ namespace DogAndRobot.Core
         // References to the input handlers
         private CharacterInputHandler _robotInput;
         private CharacterInputHandler _dogInput;
+
+        private void Awake()
+        {
+            // Force disable dynamic swap — serialized scene value may override the default
+            enableDynamicSwap = false;
+        }
 
         private void Start()
         {

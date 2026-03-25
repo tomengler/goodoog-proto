@@ -41,7 +41,17 @@ namespace DogAndRobot.Environment
             if (_spriteRenderer == null)
                 _spriteRenderer = GetComponentInChildren<SpriteRenderer>();
             if (_spriteRenderer != null)
+            {
                 _spriteRenderer.color = DefaultColor;
+                // Scale so the circle fills the entire cell
+                if (_spriteRenderer.sprite != null)
+                {
+                    float ppu = _spriteRenderer.sprite.pixelsPerUnit;
+                    float spriteWorldSize = _spriteRenderer.sprite.rect.width / ppu;
+                    float scale = cellSize / spriteWorldSize;
+                    transform.localScale = new Vector3(scale, scale, 1f);
+                }
+            }
         }
 
         void OnDestroy()

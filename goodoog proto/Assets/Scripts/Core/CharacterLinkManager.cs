@@ -341,9 +341,10 @@ namespace DogAndRobot.Core
         /// <summary>
         /// Routes directional input for a character that is currently holding a pole.
         /// Away = release + move; Toward = no-op; Perpendicular = orbit around pole.
+        /// initiator is the character whose input triggered this (determines damage type for swing attacks).
         /// Always returns true (input is consumed).
         /// </summary>
-        private bool HandlePoleInput(GridCharacter character, GridPosition direction)
+        private bool HandlePoleInput(GridCharacter character, GridPosition direction, GridCharacter initiator)
         {
             GridPosition poleDir = character.PoleDirection;
 
@@ -360,34 +361,138 @@ namespace DogAndRobot.Core
                 return true;
 
             // Perpendicular — orbit around the pole
-            GridPosition newPos = character.HeldPole.GridPosition + direction;
+            GridPosition polePos = character.HeldPole.GridPosition;
+            GridPosition newPos = polePos + direction;
 
-            // Check blocked (wall, enemy, pole, or other character when separated)
-            if (WallManager.Instance.IsWall(newPos) ||
-                Enemy.FindAtPosition(newPos) != null ||
-                Pole.FindAtPosition(newPos) != null)
-                return true; // blocked, consume input
+            // Check blocked by wall or pole at orbit destination
+            if (WallManager.Instance.IsWall(newPos) || Pole.FindAtPosition(newPos) != null)
+                return true;
 
             if (!_isJoined)
             {
-                // When separated, also block if other character is at destination
                 GridCharacter other = (character == robot) ? (GridCharacter)dog : robot;
                 if (other.GridPosition.Equals(newPos))
                     return true;
             }
 
+            // --- SWING ATTACK: check enemies along the arc ---
+            // Determine rotation direction (CCW vs CW)
+            GridPosition startRel = character.GridPosition - polePos;
+            GridPosition endRel = newPos - polePos;
+            int cross = startRel.x * endRel.y - startRel.y * endRel.x;
+
+            DamageType damageType = initiator.GetDamageType();
+
+            // Two arc positions can have enemies:
+            // 1) Diagonal tile (corner of arc): characterPos + inputDirection
+            // 2) Destination tile (end of arc): newPos itself
+            GridPosition diagonalPos = character.GridPosition + direction;
+            Enemy diagonalEnemy = Enemy.FindAtPosition(diagonalPos);
+            Enemy destEnemy = Enemy.FindAtPosition(newPos);
+
+            // Compute push destinations
+            GridPosition diagonalDest = GridPosition.Zero;
+            GridPosition destEnemyDest = GridPosition.Zero;
+
+            if (diagonalEnemy != null)
+            {
+                GridPosition rel = diagonalPos - polePos;
+                GridPosition rotated = cross > 0
+                    ? new GridPosition(-rel.y, rel.x)
+                    : new GridPosition(rel.y, -rel.x);
+                diagonalDest = polePos + rotated;
+            }
+
+            if (destEnemy != null)
+            {
+                // Push one tile in the arc continuation direction (tangent at end)
+                GridPosition pushDir = cross > 0
+                    ? new GridPosition(-endRel.y, endRel.x)
+                    : new GridPosition(endRel.y, -endRel.x);
+                destEnemyDest = newPos + pushDir;
+            }
+
+            // Validate all enemies can be hit and pushed
+            if (diagonalEnemy != null)
+            {
+                if (!diagonalEnemy.IsVulnerable && diagonalEnemy.PeekNextDamageType() != damageType)
+                    return true; // wrong type, arc blocked
+
+                if (IsPositionBlocked(diagonalDest, character))
+                    return true;
+            }
+
+            if (destEnemy != null)
+            {
+                if (!destEnemy.IsVulnerable && destEnemy.PeekNextDamageType() != damageType)
+                    return true; // wrong type, arc blocked
+
+                if (IsPositionBlocked(destEnemyDest, character))
+                    return true;
+
+                // If both enemies exist, their destinations must not conflict
+                if (diagonalEnemy != null && diagonalDest.Equals(destEnemyDest))
+                    return true;
+            }
+
+            // Execute swing attacks (diagonal first, then destination)
+            if (diagonalEnemy != null)
+                ExecuteSwingHit(diagonalEnemy, damageType, initiator, direction, diagonalDest - diagonalPos);
+
+            if (destEnemy != null)
+            {
+                GridPosition pushDir = destEnemyDest - newPos;
+                ExecuteSwingHit(destEnemy, damageType, initiator, direction, pushDir);
+            }
+
             // Execute orbit
-            GridPosition prevPos = character.GridPosition;
             character.StartOrbit(newPos, character.HeldPole);
 
-            // Joined follower moves to holder's previous position
             if (_isJoined)
             {
                 GridCharacter follower = (character == robot) ? (GridCharacter)dog : robot;
-                follower.AnimateMoveTo(prevPos);
+                follower.StartOrbit(newPos, character.HeldPole);
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Checks if a grid position is blocked by a wall, pole, enemy, or (when separated) the other character.
+        /// </summary>
+        private bool IsPositionBlocked(GridPosition pos, GridCharacter holder)
+        {
+            if (WallManager.Instance.IsWall(pos) ||
+                Pole.FindAtPosition(pos) != null ||
+                Enemy.FindAtPosition(pos) != null)
+                return true;
+
+            if (!_isJoined)
+            {
+                GridCharacter other = (holder == robot) ? (GridCharacter)dog : robot;
+                if (other.GridPosition.Equals(pos))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Hits an enemy as part of a swing attack, applying damage and knockback.
+        /// </summary>
+        private void ExecuteSwingHit(Enemy enemy, DamageType damageType, GridCharacter initiator,
+            GridPosition swingDirection, GridPosition knockbackDir)
+        {
+            if (enemy.IsVulnerable)
+                enemy.TryPush(swingDirection, knockbackDir);
+            else
+                enemy.TryTakeHit(damageType, swingDirection, initiator.transform,
+                    knockbackOverride: knockbackDir);
+
+            SFXManager.PlayMediumHit();
+            Vector2 dir2d = new Vector2(swingDirection.x, swingDirection.y);
+            GameFeelManager.ScreenShake(0.15f, 0.06f);
+            GameFeelManager.HitStop(0.06f);
+            GameFeelParticles.HitBurst(enemy.transform.position, dir2d, Color.white, 8);
         }
 
         // === JOINED / SEPARATE INPUT ===
@@ -395,15 +500,30 @@ namespace DogAndRobot.Core
         private void HandleJoinedInput(GridPosition robotDir, GridPosition dogDir)
         {
             // Check if either character is holding a pole — route to pole input handler
-            if (robot.SprintState == MoveState.HoldingPole && robotDir != GridPosition.Zero)
+            // When joined, EITHER character's input can control the holder's pole orbit.
+            if (robot.SprintState == MoveState.HoldingPole)
             {
-                HandlePoleInput(robot, robotDir);
-                return;
+                GridCharacter initiator = null;
+                GridPosition dir = GridPosition.Zero;
+                if (robotDir != GridPosition.Zero) { dir = robotDir; initiator = robot; }
+                else if (dogDir != GridPosition.Zero) { dir = dogDir; initiator = dog; }
+                if (dir != GridPosition.Zero)
+                {
+                    HandlePoleInput(robot, dir, initiator);
+                    return;
+                }
             }
-            if (dog.SprintState == MoveState.HoldingPole && dogDir != GridPosition.Zero)
+            if (dog.SprintState == MoveState.HoldingPole)
             {
-                HandlePoleInput(dog, dogDir);
-                return;
+                GridCharacter initiator = null;
+                GridPosition dir = GridPosition.Zero;
+                if (dogDir != GridPosition.Zero) { dir = dogDir; initiator = dog; }
+                else if (robotDir != GridPosition.Zero) { dir = robotDir; initiator = robot; }
+                if (dir != GridPosition.Zero)
+                {
+                    HandlePoleInput(dog, dir, initiator);
+                    return;
+                }
             }
 
             // Record inputs with timestamps
@@ -560,12 +680,12 @@ namespace DogAndRobot.Core
             // Normal movement for non-sprinting characters
             // Check for pole input first, then fall through to normal movement
             if (robot.SprintState == MoveState.HoldingPole && robotDir != GridPosition.Zero)
-                HandlePoleInput(robot, robotDir);
+                HandlePoleInput(robot, robotDir, robot);
             else if (robotDir != GridPosition.Zero && robot.SprintState == MoveState.Normal)
                 TryMoveWithPoleCheck(robot, robotDir);
 
             if (dog.SprintState == MoveState.HoldingPole && dogDir != GridPosition.Zero)
-                HandlePoleInput(dog, dogDir);
+                HandlePoleInput(dog, dogDir, dog);
             else if (dogDir != GridPosition.Zero && dog.SprintState == MoveState.Normal)
                 TryMoveWithPoleCheck(dog, dogDir);
         }
@@ -625,34 +745,40 @@ namespace DogAndRobot.Core
         // === SPRINT POLE GRAB ===
 
         /// <summary>
-        /// While sprinting, check for a perpendicular tap toward a pole.
-        /// If found, initiate a 180-degree orbit around it (or fall back to hold if blocked).
+        /// While sprinting, check if any input is held perpendicular to the sprint direction.
+        /// If so, look for a pole adjacent in that direction. Grabs the first aligned pole
+        /// during cell crossings for reliable detection.
         /// </summary>
         bool TrySprintPoleGrab(GridCharacter character, CharacterInputHandler input)
         {
             if (character.SprintState != MoveState.Sprinting) return false;
 
-            GridPosition perpTap = input.GetPerpendicularTapThisFrame(character.SprintDirection);
-            if (perpTap == GridPosition.Zero) return false;
+            // Check all perpendicular held directions
+            GridPosition sprintDir = character.SprintDirection;
+            GridPosition heldDir = input.GetHeldDirection();
+            if (heldDir == GridPosition.Zero) return false;
 
-            GridPosition perpPolePos = character.GridPosition + perpTap;
+            // Must be perpendicular to sprint direction
+            if (!ArePerpendicularDirections(sprintDir, heldDir)) return false;
+
+            GridPosition perpPolePos = character.GridPosition + heldDir;
             Pole perpPole = Pole.FindAtPosition(perpPolePos);
             if (perpPole == null) return false;
 
-            // Calculate opposite side destination: pole position + grab direction
-            GridPosition exitPos = perpPolePos + perpTap;
+            // Calculate opposite side destination: pole position + held direction
+            GridPosition exitPos = perpPolePos + heldDir;
             if (!WallManager.Instance.IsWall(exitPos) &&
                 Enemy.FindAtPosition(exitPos) == null &&
                 Pole.FindAtPosition(exitPos) == null)
             {
-                character.StartSprintOrbit(perpPole, perpTap, exitPos);
+                character.StartSprintOrbit(perpPole, heldDir, exitPos);
                 return true;
             }
             else
             {
                 // Blocked — fall back to normal hold
                 character.StopSprintImmediate();
-                character.EnterPoleHold(perpPole, perpTap);
+                character.EnterPoleHold(perpPole, heldDir);
                 return true;
             }
         }
@@ -694,10 +820,15 @@ namespace DogAndRobot.Core
             }
         }
 
+        private bool IsSprintOrBrake(MoveState state)
+        {
+            return state == MoveState.Sprinting || state == MoveState.Braking;
+        }
+
         private void HandleJoinedSprintUpdate()
         {
-            // Only care if currently sprinting or braking
-            if (robot.SprintState == MoveState.Normal && dog.SprintState == MoveState.Normal)
+            // Only care if currently sprinting or braking — HoldingPole is handled by HandleLinkedInput
+            if (!IsSprintOrBrake(robot.SprintState) && !IsSprintOrBrake(dog.SprintState))
             {
                 dog.SuppressStepSound = false;
                 _leaderWasOrbiting = false;
@@ -705,9 +836,10 @@ namespace DogAndRobot.Core
             }
 
             // Resolve leader/follower based on who initiated the sprint
-            GridCharacter sprintLeader = (_joinedMovementLeader == DamageType.Robot) ? (GridCharacter)robot : dog;
+            GridCharacter sprintLeader = (_joinedSprintInitiator == robot) ? (GridCharacter)robot : dog;
             GridCharacter sprintFollower = (sprintLeader == robot) ? (GridCharacter)dog : robot;
-            CharacterInputHandler leaderInput = (_joinedMovementLeader == DamageType.Robot) ? _robotInput : _dogInput;
+            CharacterInputHandler leaderInput = (sprintLeader == robot) ? _robotInput : _dogInput;
+            CharacterInputHandler followerInput = (sprintLeader == robot) ? _dogInput : _robotInput;
 
             // --- ORBIT GUARD ---
             // While the leader is doing a sprint orbit, the follower stays stacked and we skip
@@ -736,10 +868,10 @@ namespace DogAndRobot.Core
                 _leaderWasOrbiting = false;
             }
 
-            // Check for perpendicular sprint pole grab (leader only)
+            // Check for perpendicular sprint pole grab (either character's input can trigger)
             if (sprintLeader.SprintState == MoveState.Sprinting)
             {
-                if (TrySprintPoleGrab(sprintLeader, leaderInput))
+                if (TrySprintPoleGrab(sprintLeader, leaderInput) || TrySprintPoleGrab(sprintLeader, followerInput))
                 {
                     // Stop the follower's sprint so they wait while leader orbits
                     sprintFollower.StopSprintImmediate();
@@ -777,20 +909,20 @@ namespace DogAndRobot.Core
 
             // If one character's sprint ended (e.g. hit an enemy) while the other is still going,
             // force-end the other to keep them in sync.
-            // Skip this check if the leader is orbiting (handled by the orbit guard above).
-            if (robot.SprintState == MoveState.Normal && dog.SprintState != MoveState.Normal)
+            // Only applies to actual sprint/brake states, NOT HoldingPole.
+            if (robot.SprintState == MoveState.Normal && IsSprintOrBrake(dog.SprintState))
             {
                 dog.StopSprintImmediate();
                 dog.SuppressStepSound = false;
             }
-            else if (dog.SprintState == MoveState.Normal && robot.SprintState != MoveState.Normal)
+            else if (dog.SprintState == MoveState.Normal && IsSprintOrBrake(robot.SprintState))
             {
                 robot.StopSprintImmediate();
                 dog.SuppressStepSound = false;
             }
 
             // Keep follower synced during sprint/brake
-            if (robot.SprintState != MoveState.Normal || dog.SprintState != MoveState.Normal)
+            if (IsSprintOrBrake(robot.SprintState) || IsSprintOrBrake(dog.SprintState))
             {
                 // Sync follower position to leader during joined sprint
                 sprintFollower.transform.position = sprintLeader.transform.position;
